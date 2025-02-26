@@ -1,0 +1,5 @@
+C:\Users\HomePC\Documents\GameTracker\MyGameCatalog\obj\Debug\net6.0-windows10.0.19041.0\MyGameCatalog.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\HomePC\Documents\GameTracker\MyGameCatalog\obj\Debug\net6.0-windows10.0.19041.0\MyGameCatalog.AssemblyInfoInputs.cache
+C:\Users\HomePC\Documents\GameTracker\MyGameCatalog\obj\Debug\net6.0-windows10.0.19041.0\MyGameCatalog.AssemblyInfo.cs
+C:\Users\HomePC\Documents\GameTracker\MyGameCatalog\obj\Debug\net6.0-windows10.0.19041.0\MyGameCatalog.csproj.CoreCompileInputs.cache
+C:\Users\HomePC\Documents\GameTracker\MyGameCatalog\obj\Debug\net6.0-windows10.0.19041.0\MyGameCatalog.sourcelink.json
