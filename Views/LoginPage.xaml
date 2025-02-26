@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             x:Class="MyGameCatalog.Views.LoginPage"
+             Title="Login">
+  <StackLayout Padding="30" VerticalOptions="Center">
+    <Label Text="Welcome to Game Catalog" 
+           FontSize="24"
+           HorizontalOptions="Center" />
+    <Button Text="Login with Google" 
+            Command="{Binding LoginCommand}" 
+            Margin="0,20,0,0" />
+    <ActivityIndicator IsRunning="{Binding IsBusy}" 
+                       IsVisible="{Binding IsBusy}" />
+    <Label Text="{Binding UserEmail}" 
+           HorizontalOptions="Center"
+           Margin="0,20,0,0" />
+  </StackLayout>
+</ContentPage>

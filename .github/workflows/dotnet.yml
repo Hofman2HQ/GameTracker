@@ -1,0 +1,29 @@
+name: .NET MAUI CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '7.0.x'  # Adjust as needed.
+
+    - name: Restore dependencies
+      run: dotnet restore MyGameCatalog.sln
+
+    - name: Build solution
+      run: dotnet build MyGameCatalog.sln --configuration Release
+
+    - name: Run tests
+      run: dotnet test MyGameCatalog.Tests/MyGameCatalog.Tests.csproj --no-build --verbosity normal
