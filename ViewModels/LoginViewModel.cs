@@ -19,11 +19,25 @@ namespace MyGameCatalog.ViewModels
             set { _isBusy = value; OnPropertyChanged(); }
         }
 
-        private string _userEmail;
-        public string UserEmail 
+        private string _username;
+        public string Username 
         {
-            get => _userEmail;
-            set { _userEmail = value; OnPropertyChanged(); }
+            get => _username;
+            set { _username = value; OnPropertyChanged(); }
+        }
+
+        private string _password;
+        public string Password
+        {
+            get => _password;
+            set { _password = value; OnPropertyChanged(); }
+        }
+
+        private string _errorMessage;
+        public string ErrorMessage 
+        {
+            get => _errorMessage;
+            set { _errorMessage = value; OnPropertyChanged(); }
         }
 
         public ICommand LoginCommand { get; }
@@ -38,18 +52,27 @@ namespace MyGameCatalog.ViewModels
         {
             if (IsBusy)
                 return;
+
             IsBusy = true;
+            ErrorMessage = string.Empty;
+
             try
             {
-                var email = await _authService.LoginWithGoogleAsync();
-                UserEmail = email;
-                // Navigate to MainPage (resolved from DI)
-                await Application.Current.MainPage.Navigation.PushAsync(
-                    (Page)App.Current.Services.GetService(typeof(Views.MainPage)));
+                var success = await _authService.LoginWithCredentialsAsync(Username, Password);
+                if (success)
+                {
+                    // Navigate to MainPage
+                    await Application.Current.MainPage.Navigation.PushAsync(
+                        (Page)App.Current.Services.GetService(typeof(Views.MainPage)));
+                }
+                else
+                {
+                    ErrorMessage = "Invalid username or password";
+                }
             }
             catch (System.Exception ex)
             {
-                // Log or display error.
+                ErrorMessage = "An error occurred during login";
             }
             finally
             {

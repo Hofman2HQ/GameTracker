@@ -1,5 +1,10 @@
 {
   "profiles": {
+    "MyGameCatalog": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "nativeDebugging": false
+    },
     "Windows Machine": {
       "commandName": "MsixPackage",
       "nativeDebugging": false
