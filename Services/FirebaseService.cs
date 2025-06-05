@@ -7,23 +7,87 @@ using System.Threading.Tasks;
 using MyGameCatalog.Models;
 using MyGameCatalog.Services.Interfaces;
 using System.Net;
+using System.Net.Http.Json;
 
 namespace MyGameCatalog.Services
 {
+    public interface IFirebaseService
+    {
+        Task<T> GetAsync<T>(string path);
+        Task<T> SetAsync<T>(string path, T data);
+        Task<T> UpdateAsync<T>(string path, T data);
+        Task DeleteAsync(string path);
+    }
+
     public class FirebaseService : IFirebaseService, IDisposable
     {
         private readonly HttpClient _httpClient;
-        private readonly string _firebaseBaseUrl;
+        private readonly string _baseUrl;
         private readonly int _maxRetries = 3;
         private readonly TimeSpan _timeout = TimeSpan.FromSeconds(30);
 
-        public FirebaseService(string firebaseBaseUrl)
+        public FirebaseService(string baseUrl)
         {
-            if (string.IsNullOrEmpty(firebaseBaseUrl))
-                throw new ArgumentNullException(nameof(firebaseBaseUrl));
-
-            _firebaseBaseUrl = firebaseBaseUrl;
+            _baseUrl = baseUrl.TrimEnd('/');
             _httpClient = new HttpClient { Timeout = _timeout };
+        }
+
+        public async Task<T> GetAsync<T>(string path)
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}/{path}.json");
+                response.EnsureSuccessStatusCode();
+                return await response.Content.ReadFromJsonAsync<T>();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error getting data from Firebase: {ex}");
+                return default;
+            }
+        }
+
+        public async Task<T> SetAsync<T>(string path, T data)
+        {
+            try
+            {
+                var response = await _httpClient.PutAsJsonAsync($"{_baseUrl}/{path}.json", data);
+                response.EnsureSuccessStatusCode();
+                return await response.Content.ReadFromJsonAsync<T>();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error setting data in Firebase: {ex}");
+                return default;
+            }
+        }
+
+        public async Task<T> UpdateAsync<T>(string path, T data)
+        {
+            try
+            {
+                var response = await _httpClient.PatchAsJsonAsync($"{_baseUrl}/{path}.json", data);
+                response.EnsureSuccessStatusCode();
+                return await response.Content.ReadFromJsonAsync<T>();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error updating data in Firebase: {ex}");
+                return default;
+            }
+        }
+
+        public async Task DeleteAsync(string path)
+        {
+            try
+            {
+                var response = await _httpClient.DeleteAsync($"{_baseUrl}/{path}.json");
+                response.EnsureSuccessStatusCode();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error deleting data from Firebase: {ex}");
+            }
         }
 
         public async Task<bool> UploadUserCollectionsAsync(int userId, List<UserCollection> collections)
@@ -38,7 +102,7 @@ namespace MyGameCatalog.Services
             {
                 try
                 {
-                    var url = $"{_firebaseBaseUrl}/userCollections/{userId}.json";
+                    var url = $"{_baseUrl}/userCollections/{userId}.json";
                     var json = JsonSerializer.Serialize(collections);
                     var content = new StringContent(json, Encoding.UTF8, "application/json");
                     
@@ -68,7 +132,7 @@ namespace MyGameCatalog.Services
             {
                 try
                 {
-                    var url = $"{_firebaseBaseUrl}/userCollections/{userId}.json";
+                    var url = $"{_baseUrl}/userCollections/{userId}.json";
                     var response = await _httpClient.GetAsync(url);
                     
                     if (response.StatusCode == HttpStatusCode.NotFound)

@@ -12,8 +12,24 @@ namespace MyGameCatalog
         public App()
         {
             InitializeComponent();
-            // Start with the LoginPage (resolved from DI)
-            MainPage = new NavigationPage((Page)Current.Services.GetService(typeof(LoginPage)));
+
+            MainPage = new AppShell();
+        }
+
+        protected override Window CreateWindow(IActivationState activationState)
+        {
+            var window = base.CreateWindow(activationState);
+
+            if (window != null)
+            {
+                window.Title = "Game Catalog";
+                window.Width = 1200;
+                window.Height = 800;
+                window.MinimumWidth = 800;
+                window.MinimumHeight = 600;
+            }
+
+            return window;
         }
     }
 }

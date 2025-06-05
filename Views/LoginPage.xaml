@@ -5,51 +5,87 @@
              Title="Login">
     
     <ScrollView>
-        <VerticalStackLayout Spacing="25" Padding="30,0" VerticalOptions="Center">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+              Padding="30,0"
+              VerticalOptions="Center"
+              RowSpacing="25">
 
-            <Label 
-                Text="Game Tracker"
-                SemanticProperties.HeadingLevel="Level1"
-                FontSize="32"
-                HorizontalOptions="Center" />
+            <!-- Title -->
+            <Label Grid.Row="0"
+                   Text="Game Tracker"
+                   SemanticProperties.HeadingLevel="Level1"
+                   FontSize="32"
+                   HorizontalOptions="Center" />
 
-            <Entry
-                x:Name="UsernameEntry"
-                Placeholder="Username"
-                Text="{Binding Username}"
-                HorizontalOptions="Fill" />
+            <!-- Username Entry -->
+            <Frame Grid.Row="1" 
+                   BorderColor="LightGray"
+                   Padding="10">
+                <Entry x:Name="UsernameEntry"
+                       Placeholder="Username"
+                       Text="{Binding Username}"
+                       ReturnType="Next"
+                       ReturnCommand="{Binding Source={x:Reference PasswordEntry}, Path=FocusCommand}"
+                       HorizontalOptions="Fill" />
+            </Frame>
 
-            <Entry
-                x:Name="PasswordEntry"
-                Placeholder="Password"
-                Text="{Binding Password}"
-                IsPassword="True"
-                HorizontalOptions="Fill" />
+            <!-- Password Entry -->
+            <Frame Grid.Row="2" 
+                   BorderColor="LightGray"
+                   Padding="10">
+                <Entry x:Name="PasswordEntry"
+                       Placeholder="Password"
+                       Text="{Binding Password}"
+                       IsPassword="True"
+                       ReturnType="Done"
+                       ReturnCommand="{Binding LoginCommand}"
+                       HorizontalOptions="Fill" />
+            </Frame>
 
-            <Label
-                Text="{Binding ErrorMessage}"
-                TextColor="Red"
-                IsVisible="{Binding ErrorMessage, Converter={StaticResource NullOrEmptyToBoolConverter}}"
-                HorizontalOptions="Center" />
+            <!-- Remember Me -->
+            <HorizontalStackLayout Grid.Row="3" Spacing="10">
+                <CheckBox IsChecked="{Binding RememberMe}"
+                          VerticalOptions="Center"/>
+                <Label Text="Remember me"
+                       VerticalOptions="Center"/>
+            </HorizontalStackLayout>
 
-            <Button
-                x:Name="LoginButton"
-                Text="Login"
-                Command="{Binding LoginCommand}"
-                IsEnabled="{Binding !IsBusy}"
-                HorizontalOptions="Fill" />
+            <!-- Error Message -->
+            <Frame Grid.Row="4"
+                   IsVisible="{Binding ErrorMessage, Converter={StaticResource StringToBoolConverter}}"
+                   BackgroundColor="#FFE0E0"
+                   BorderColor="#FF8080"
+                   Padding="10">
+                <Label Text="{Binding ErrorMessage}"
+                       TextColor="Red"/>
+            </Frame>
 
-            <ActivityIndicator 
-                IsRunning="{Binding IsBusy}"
-                IsVisible="{Binding IsBusy}"
-                HorizontalOptions="Center" />
-                
-            <Label
-                Text="Demo credentials: test/123"
-                FontSize="Small"
-                TextColor="Gray"
-                HorizontalOptions="Center" />
+            <!-- Login Button -->
+            <Button Grid.Row="5"
+                    x:Name="LoginButton"
+                    Text="Login"
+                    Command="{Binding LoginCommand}"
+                    IsEnabled="{Binding !IsBusy}"
+                    HorizontalOptions="Fill" />
 
-        </VerticalStackLayout>
+            <!-- Google Login Button -->
+            <Button Grid.Row="6"
+                    Text="Login with Google"
+                    Command="{Binding GoogleLoginCommand}"
+                    IsEnabled="{Binding !IsBusy}"
+                    BackgroundColor="#4285F4"
+                    TextColor="White"
+                    HorizontalOptions="Fill" />
+
+            <!-- Loading Indicator -->
+            <Grid Grid.Row="7" 
+                  IsVisible="{Binding IsBusy}">
+                <ActivityIndicator IsRunning="True"
+                                 IsVisible="True"
+                                 HorizontalOptions="Center"
+                                 VerticalOptions="Center"/>
+            </Grid>
+
+        </Grid>
     </ScrollView>
 </ContentPage>
