@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="detail">
+    <div class="detail-media">
+      {% if game.background_image %}
+        <img class="hero" src="{{ game.background_image }}" alt="{{ game.name }}" />
+      {% endif %}
+    </div>
+    <div class="detail-body">
+      <h2>{{ game.name }}</h2>
+      <div class="meta">
+        {% if game.released %}Released: {{ game.released }} · {% endif %}
+        {% if game.metacritic %}Metacritic: {{ game.metacritic }}{% endif %}
+      </div>
+      {% if game.genres_json %}
+        <div class="meta">Genres: {{ game.genres_json }}</div>
+      {% endif %}
+      {% if game.platforms_json %}
+        <div class="meta">Platforms: {{ game.platforms_json }}</div>
+      {% endif %}
+
+      {% if entry %}
+        <h3>Update Entry</h3>
+        <form method="post" action="/entries/{{ entry.id }}/update" class="form">
+          <label>Status
+            <select name="status">
+              {% for s in statuses %}
+                <option value="{{ s }}" {% if s == entry.status %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Rating (0-10)
+            <input type="number" name="rating" min="0" max="10" value="{{ entry.rating if entry.rating is not none else '' }}" />
+          </label>
+          <label>Hours Played
+            <input type="number" name="hours_played" step="0.1" value="{{ entry.hours_played if entry.hours_played is not none else '' }}" />
+          </label>
+          <label>Start Date
+            <input type="date" name="start_date" value="{{ entry.start_date if entry.start_date else '' }}" />
+          </label>
+          <label>End Date
+            <input type="date" name="end_date" value="{{ entry.end_date if entry.end_date else '' }}" />
+          </label>
+          <label class="inline">
+            <input type="checkbox" name="favorite" {% if entry.favorite %}checked{% endif %}/> Favorite
+          </label>
+          <label>Comments
+            <textarea name="comment" rows="5" placeholder="Your thoughts...">{{ entry.comment or '' }}</textarea>
+          </label>
+          <div class="actions">
+            <button type="submit">Save</button>
+          </div>
+        </form>
+        <form method="post" action="/entries/{{ entry.id }}/delete" onsubmit="return confirm('Remove from your list?')">
+          <button type="submit" class="danger">Remove from List</button>
+        </form>
+      {% else %}
+        <form method="post" action="/add">
+          <input type="hidden" name="rawg_id" value="{{ game.rawg_id }}" />
+          <button type="submit">Add to My List</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>Search</h2>
+  <form method="get" action="/search" class="controls">
+    <input type="text" name="q" placeholder="Search games..." value="{{ q }}" />
+    <button type="submit">Search</button>
+  </form>
+
+  {% if q and results|length == 0 %}
+    <p>No results found.</p>
+  {% endif %}
+
+  <div class="grid">
+  {% for g in results %}
+    <div class="card">
+      {% if g.background_image %}
+        <img class="thumb" src="{{ g.background_image }}" alt="{{ g.name }}" />
+      {% endif %}
+      <div class="card-body">
+        <h3><a href="/game/{{ g.id }}">{{ g.name }}</a></h3>
+        {% if g.released %}<div class="meta">Released: {{ g.released }}</div>{% endif %}
+        <form method="post" action="/add">
+          <input type="hidden" name="rawg_id" value="{{ g.id }}" />
+          <button type="submit">Add to My List</button>
+        </form>
+      </div>
+    </div>
+  {% endfor %}
+  </div>
+{% endblock %}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GameTracker</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="container">
+      <h1><a class="brand" href="/">GameTracker</a></h1>
+      <nav>
+        <a href="/list">My List</a>
+        <a href="/search">Search</a>
+        <a href="/stats">Stats</a>
+      </nav>
+    </header>
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="container footer">Built with FastAPI + RAWG</footer>
+  </body>
+</html>

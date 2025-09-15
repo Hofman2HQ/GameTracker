@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>My List{% if current_status %} – {{ current_status }}{% endif %}</h2>
+
+  <form method="get" action="/list" class="controls">
+    <label>Filter:
+      <select name="status" onchange="this.form.submit()">
+        <option value="">All</option>
+        {% for s in statuses %}
+        <option value="{{ s }}" {% if s == current_status %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <a class="button" href="/search">Add Games</a>
+  </form>
+
+  {% if entries|length == 0 %}
+    <p>No games yet. Use Search to add some.</p>
+  {% else %}
+  <div class="grid">
+    {% for e in entries %}
+      <div class="card">
+        {% if e.game.background_image %}
+          <img class="thumb" src="{{ e.game.background_image }}" alt="{{ e.game.name }}" />
+        {% endif %}
+        <div class="card-body">
+          <h3><a href="/game/{{ e.game.rawg_id }}">{{ e.game.name }}</a></h3>
+          <div class="meta">Status: <strong>{{ e.status }}</strong>{% if e.rating is not none %} · Rating: {{ e.rating }}/10{% endif %}</div>
+          {% if e.comment %}<div class="comment">{{ e.comment }}</div>{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endblock %}
