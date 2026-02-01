@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from ..database import SessionLocal
 from ..models import Game, Entry
 from ..schemas import EntryCreate, EntryUpdate, EntryOut, GameOut
-from ..rawg import RawgClient
+from ..rawg import RawgClient, rank_results
+from ..recommendations import build_recommendations
 from ..config import STATUSES
 
 router = APIRouter()
@@ -89,10 +90,58 @@ def delete_entry(entry_id: int, db: Session = Depends(get_db)):
 
 
 @router.get('/search')
-async def search(query: str):
+async def search(
+    query: Optional[str] = None,
+    page_size: int = 20,
+    mode: str = 'search',
+    platform: Optional[str] = None,
+    genre: Optional[str] = None,
+    page: int = 1
+):
     client = RawgClient()
-    res = await client.search_games(query, page_size=20)
+    page_size = max(1, min(page_size, 40))
+    page = max(1, min(page, 50))
+    platform_id = int(platform) if platform and platform.isdigit() else None
+    prefer_popular = mode == 'autocomplete'
+    if not query or not query.strip():
+        if prefer_popular:
+            return {'results': []}
+        return await client.list_top_games(
+            page_size=page_size,
+            parent_platforms=platform_id,
+            genres=genre,
+            page=page
+        )
+    query = query.strip()
+    ordering = '-metacritic' if prefer_popular else None
+    res = await client.search_games(
+        query,
+        page_size=page_size,
+        parent_platforms=platform_id,
+        genres=genre,
+        ordering=ordering,
+        page=page
+    )
+    res['results'] = rank_results(query, res.get('results', []), prefer_popular=prefer_popular)
     return res
+
+
+@router.get('/recommendations')
+async def recommendations_api(
+    page: int = 1,
+    page_size: int = 8,
+    db: Session = Depends(get_db)
+):
+    page_size = max(1, min(page_size, 20))
+    recommendations, has_more = await build_recommendations(
+        db,
+        page=page,
+        page_size=page_size
+    )
+    return {
+        'results': recommendations,
+        'next_page': page + 1 if has_more else None
+    }
 from fastapi.responses import StreamingResponse
 import io
 import csv

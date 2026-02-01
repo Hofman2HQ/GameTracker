@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Float, Boolean
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from .database import Base
@@ -12,12 +13,31 @@ class Game(Base):
     background_image: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     released: Mapped[str | None] = mapped_column(String(50), nullable=True)
     metacritic: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     genres_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     platforms_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     entries: Mapped[list['Entry']] = relationship('Entry', back_populates='game', cascade='all, delete')
+
+    @property
+    def genres(self) -> list[str]:
+        if not self.genres_json:
+            return []
+        try:
+            return json.loads(self.genres_json)
+        except json.JSONDecodeError:
+            return []
+
+    @property
+    def platforms(self) -> list[str]:
+        if not self.platforms_json:
+            return []
+        try:
+            return json.loads(self.platforms_json)
+        except json.JSONDecodeError:
+            return []
 
 
 class Entry(Base):

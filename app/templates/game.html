@@ -5,19 +5,52 @@
       {% if game.background_image %}
         <img class="hero" src="{{ game.background_image }}" alt="{{ game.name }}" />
       {% endif %}
+      <div class="media-badges">
+        {% if game.metacritic %}<span class="badge badge-strong">MC {{ game.metacritic }}</span>{% endif %}
+        {% if game.released %}<span class="badge">Released {{ game.released }}</span>{% endif %}
+      </div>
     </div>
     <div class="detail-body">
       <h2>{{ game.name }}</h2>
-      <div class="meta">
-        {% if game.released %}Released: {{ game.released }} · {% endif %}
-        {% if game.metacritic %}Metacritic: {{ game.metacritic }}{% endif %}
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="label">Platforms</div>
+          <div class="value">
+            {% if platforms %}
+              <div class="chips">
+                {% for platform in platforms %}
+                <span class="chip chip-outline">{{ platform }}</span>
+                {% endfor %}
+              </div>
+            {% else %}
+              <span class="muted">Not listed</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="info-card">
+          <div class="label">Genres</div>
+          <div class="value">
+            {% if genres %}
+              <div class="chips">
+                {% for genre in genres %}
+                <span class="chip">{{ genre }}</span>
+                {% endfor %}
+              </div>
+            {% else %}
+              <span class="muted">Not listed</span>
+            {% endif %}
+          </div>
+        </div>
       </div>
-      {% if game.genres_json %}
-        <div class="meta">Genres: {{ game.genres_json }}</div>
-      {% endif %}
-      {% if game.platforms_json %}
-        <div class="meta">Platforms: {{ game.platforms_json }}</div>
-      {% endif %}
+
+      <section class="synopsis">
+        <h3>Synopsis</h3>
+        {% if synopsis %}
+          <p>{{ synopsis }}</p>
+        {% else %}
+          <p class="muted">Synopsis not available.</p>
+        {% endif %}
+      </section>
 
       {% if entry %}
         <h3>Update Entry</h3>
@@ -29,8 +62,13 @@
               {% endfor %}
             </select>
           </label>
-          <label>Rating (0-10)
-            <input type="number" name="rating" min="0" max="10" value="{{ entry.rating if entry.rating is not none else '' }}" />
+          <label>Score (1-10)
+            <select name="rating">
+              <option value="">No rating</option>
+              {% for r in range(1, 11) %}
+                <option value="{{ r }}" {% if entry.rating == r %}selected{% endif %}>{{ r }}</option>
+              {% endfor %}
+            </select>
           </label>
           <label>Hours Played
             <input type="number" name="hours_played" step="0.1" value="{{ entry.hours_played if entry.hours_played is not none else '' }}" />
@@ -41,9 +79,12 @@
           <label>End Date
             <input type="date" name="end_date" value="{{ entry.end_date if entry.end_date else '' }}" />
           </label>
-          <label class="inline">
-            <input type="checkbox" name="favorite" {% if entry.favorite %}checked{% endif %}/> Favorite
-          </label>
+          <div class="favorite-control">
+            <input type="hidden" name="favorite" id="favorite-input" value="{{ 1 if entry.favorite else 0 }}" />
+            <button type="button" class="favorite-button" id="favorite-button" aria-pressed="{{ 'true' if entry.favorite else 'false' }}">
+              <span class="favorite-text">{{ 'Favorited' if entry.favorite else 'Mark Favorite' }}</span>
+            </button>
+          </div>
           <label>Comments
             <textarea name="comment" rows="5" placeholder="Your thoughts...">{{ entry.comment or '' }}</textarea>
           </label>
@@ -54,6 +95,26 @@
         <form method="post" action="/entries/{{ entry.id }}/delete" onsubmit="return confirm('Remove from your list?')">
           <button type="submit" class="danger">Remove from List</button>
         </form>
+        <script>
+          (function () {
+            var button = document.getElementById('favorite-button');
+            var input = document.getElementById('favorite-input');
+            if (!button || !input) {
+              return;
+            }
+            function setState(active) {
+              button.setAttribute('aria-pressed', active ? 'true' : 'false');
+              button.classList.toggle('is-active', active);
+              button.querySelector('.favorite-text').textContent = active ? 'Favorited' : 'Mark Favorite';
+              input.value = active ? '1' : '0';
+            }
+            setState(button.getAttribute('aria-pressed') === 'true');
+            button.addEventListener('click', function () {
+              var active = button.getAttribute('aria-pressed') === 'true';
+              setState(!active);
+            });
+          })();
+        </script>
       {% else %}
         <form method="post" action="/add">
           <input type="hidden" name="rawg_id" value="{{ game.rawg_id }}" />

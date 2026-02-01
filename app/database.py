@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from .config import DB_URL
 
@@ -13,3 +13,10 @@ class Base(DeclarativeBase):
 def init_db():
     from . import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "sqlite":
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(games)"))
+            columns = {row[1] for row in result}
+            if "description" not in columns:
+                conn.execute(text("ALTER TABLE games ADD COLUMN description TEXT"))
+                conn.commit()

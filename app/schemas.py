@@ -8,6 +8,7 @@ class GameBase(BaseModel):
     background_image: Optional[str] = None
     released: Optional[str] = None
     metacritic: Optional[int] = None
+    description: Optional[str] = None
     genres: Optional[List[str]] = None
     platforms: Optional[List[str]] = None
 

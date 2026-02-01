@@ -1,23 +1,65 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>GameTracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
+    <script>
+      (function () {
+        var stored = localStorage.getItem('theme');
+        if (stored) {
+          document.documentElement.setAttribute('data-theme', stored);
+          return;
+        }
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <header class="container">
-      <h1><a class="brand" href="/">GameTracker</a></h1>
-      <nav>
+    <header class="container site-header">
+      <div class="brand-row">
+        <h1><a class="brand" href="/">GameTracker</a></h1>
+        <span class="tagline">Track and finish what you start.</span>
+      </div>
+      <nav class="nav">
         <a href="/list">My List</a>
         <a href="/search">Search</a>
         <a href="/stats">Stats</a>
+        <a href="/recommendations">Recommendations</a>
       </nav>
+      <div class="header-actions">
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle theme">Theme: Light</button>
+      </div>
     </header>
     <main class="container">
       {% block content %}{% endblock %}
     </main>
-    <footer class="container footer">Built with FastAPI + RAWG</footer>
+    <footer class="container footer">Built with FastAPI + RAWG | UI by Eliad Hofman</footer>
+    <script>
+      (function () {
+        var toggle = document.getElementById('theme-toggle');
+        if (!toggle) {
+          return;
+        }
+        var doc = document.documentElement;
+        var current = doc.getAttribute('data-theme') || 'light';
+        function label(theme) {
+          return 'Theme: ' + (theme === 'dark' ? 'Dark' : 'Light');
+        }
+        toggle.textContent = label(current);
+        toggle.addEventListener('click', function () {
+          current = current === 'dark' ? 'light' : 'dark';
+          doc.setAttribute('data-theme', current);
+          localStorage.setItem('theme', current);
+          toggle.textContent = label(current);
+        });
+      })();
+    </script>
   </body>
 </html>

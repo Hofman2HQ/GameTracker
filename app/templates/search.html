@@ -1,24 +1,67 @@
 {% extends 'base.html' %}
 {% block content %}
   <h2>Search</h2>
-  <form method="get" action="/search" class="controls">
-    <input type="text" name="q" placeholder="Search games..." value="{{ q }}" />
+  {% if not q %}
+    <p class="muted">Showing top games. Use the search bar or filters to refine.</p>
+  {% else %}
+    <p class="muted">Results for "{{ q }}".</p>
+  {% endif %}
+  <form method="get" action="/search" class="controls search-bar">
+    <div class="search-box">
+      <input id="search-input" type="search" name="q" placeholder="Search by title, genre, or keyword" value="{{ q }}" autocomplete="off" />
+      <div id="search-suggestions" class="suggestions" role="listbox" aria-label="Search suggestions"></div>
+    </div>
+    <div class="filters">
+      <label>Platform
+        <select name="platform" id="platform-select">
+          <option value="">All</option>
+          {% for p in platforms %}
+            <option value="{{ p.id }}" {% if p.id == platform %}selected{% endif %}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Genre
+        <select name="genre" id="genre-select">
+          <option value="">All</option>
+          {% for g in genres %}
+            <option value="{{ g.slug }}" {% if g.slug == genre %}selected{% endif %}>{{ g.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
     <button type="submit">Search</button>
   </form>
 
-  {% if q and results|length == 0 %}
+  {% if (q or platform or genre) and results|length == 0 %}
     <p>No results found.</p>
   {% endif %}
 
-  <div class="grid">
+  <div class="grid" id="search-grid">
   {% for g in results %}
     <div class="card">
       {% if g.background_image %}
-        <img class="thumb" src="{{ g.background_image }}" alt="{{ g.name }}" />
+        <img class="thumb" src="{{ g.background_image }}" alt="{{ g.name }}" loading="lazy" />
       {% endif %}
       <div class="card-body">
         <h3><a href="/game/{{ g.id }}">{{ g.name }}</a></h3>
-        {% if g.released %}<div class="meta">Released: {{ g.released }}</div>{% endif %}
+        <div class="meta-line">
+          {% if g.released %}<span class="badge">Release {{ g.released }}</span>{% endif %}
+          {% if g.metacritic %}<span class="badge">MC {{ g.metacritic }}</span>{% endif %}
+        </div>
+        {% if g.genres %}
+          <div class="chips">
+            {% for genre in g.genres[:3] %}
+            <span class="chip">{{ genre }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if g.platforms %}
+          <div class="chips">
+            {% for platform in g.platforms[:3] %}
+            <span class="chip chip-outline">{{ platform }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
         <form method="post" action="/add">
           <input type="hidden" name="rawg_id" value="{{ g.id }}" />
           <button type="submit">Add to My List</button>
@@ -27,4 +70,295 @@
     </div>
   {% endfor %}
   </div>
+  {% if results|length %}
+    <div class="controls pagination">
+      <span class="muted" id="search-page-indicator">Page {{ page }}</span>
+      {% if next_page_url %}
+        <a
+          class="button load-more push-right"
+          id="search-load-more"
+          href="{{ next_page_url }}"
+          data-page="{{ page }}"
+          data-page-size="{{ page_size }}"
+          data-query="{{ q }}"
+          data-platform="{{ platform }}"
+          data-genre="{{ genre }}"
+        >Load more</a>
+      {% endif %}
+    </div>
+  {% endif %}
+  <script>
+    (function () {
+      var input = document.getElementById('search-input');
+      var list = document.getElementById('search-suggestions');
+      var platformSelect = document.getElementById('platform-select');
+      var genreSelect = document.getElementById('genre-select');
+      if (!input || !list) {
+        return;
+      }
+      var lastController = null;
+      var timer = null;
+      function clearList() {
+        list.innerHTML = '';
+        list.classList.remove('open');
+      }
+      function renderItems(items) {
+        list.innerHTML = '';
+        if (!items.length) {
+          clearList();
+          return;
+        }
+        items.forEach(function (item) {
+          var option = document.createElement('button');
+          option.type = 'button';
+          option.className = 'suggestion';
+          option.textContent = item.name;
+          option.addEventListener('click', function () {
+            input.value = item.name;
+            input.form.submit();
+          });
+          list.appendChild(option);
+        });
+        list.classList.add('open');
+      }
+      function fetchSuggestions(query) {
+        if (lastController) {
+          lastController.abort();
+        }
+        lastController = new AbortController();
+        var params = new URLSearchParams();
+        params.set('query', query);
+        params.set('page_size', '10');
+        params.set('mode', 'autocomplete');
+        if (platformSelect && platformSelect.value) {
+          params.set('platform', platformSelect.value);
+        }
+        if (genreSelect && genreSelect.value) {
+          params.set('genre', genreSelect.value);
+        }
+        fetch('/api/search?' + params.toString(), {
+          signal: lastController.signal
+        })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            var items = (data.results || []).slice(0, 8).map(function (item) {
+              return { name: item.name };
+            });
+            renderItems(items);
+          })
+          .catch(function () {});
+      }
+      input.addEventListener('input', function () {
+        var value = input.value.trim();
+        if (value.length < 2) {
+          clearList();
+          return;
+        }
+        if (timer) {
+          clearTimeout(timer);
+        }
+        timer = setTimeout(function () {
+          fetchSuggestions(value);
+        }, 150);
+      });
+      document.addEventListener('click', function (event) {
+        if (!list.contains(event.target) && event.target !== input) {
+          clearList();
+        }
+      });
+    })();
+  </script>
+  <script>
+    (function () {
+      var loadMore = document.getElementById('search-load-more');
+      var grid = document.getElementById('search-grid');
+      if (!loadMore || !grid) {
+        return;
+      }
+      var indicator = document.getElementById('search-page-indicator');
+      var pageSize = parseInt(loadMore.dataset.pageSize || '12', 10);
+      var currentPage = parseInt(loadMore.dataset.page || '1', 10);
+      var isLoading = false;
+      var originalLabel = loadMore.textContent;
+
+      function extractGenres(items) {
+        if (!Array.isArray(items)) {
+          return [];
+        }
+        return items.map(function (entry) {
+          if (typeof entry === 'string') {
+            return entry;
+          }
+          if (entry && entry.name) {
+            return entry.name;
+          }
+          return null;
+        }).filter(Boolean);
+      }
+
+      function extractPlatforms(items) {
+        if (!Array.isArray(items)) {
+          return [];
+        }
+        return items.map(function (entry) {
+          if (typeof entry === 'string') {
+            return entry;
+          }
+          if (entry && entry.platform && entry.platform.name) {
+            return entry.platform.name;
+          }
+          if (entry && entry.name) {
+            return entry.name;
+          }
+          return null;
+        }).filter(Boolean);
+      }
+
+      function buildChips(values, className, limit) {
+        var wrapper = document.createElement('div');
+        wrapper.className = 'chips';
+        values.slice(0, limit).forEach(function (value) {
+          var chip = document.createElement('span');
+          chip.className = className;
+          chip.textContent = value;
+          wrapper.appendChild(chip);
+        });
+        return wrapper;
+      }
+
+      function createCard(item) {
+        var card = document.createElement('div');
+        card.className = 'card';
+        if (item.background_image) {
+          var img = document.createElement('img');
+          img.className = 'thumb';
+          img.src = item.background_image;
+          img.alt = item.name || 'Game';
+          img.loading = 'lazy';
+          card.appendChild(img);
+        }
+
+        var body = document.createElement('div');
+        body.className = 'card-body';
+
+        var title = document.createElement('h3');
+        var link = document.createElement('a');
+        link.href = '/game/' + item.id;
+        link.textContent = item.name || 'Untitled';
+        title.appendChild(link);
+        body.appendChild(title);
+
+        var meta = document.createElement('div');
+        meta.className = 'meta-line';
+        if (item.released) {
+          var release = document.createElement('span');
+          release.className = 'badge';
+          release.textContent = 'Release ' + item.released;
+          meta.appendChild(release);
+        }
+        if (item.metacritic) {
+          var mc = document.createElement('span');
+          mc.className = 'badge';
+          mc.textContent = 'MC ' + item.metacritic;
+          meta.appendChild(mc);
+        }
+        if (meta.childNodes.length) {
+          body.appendChild(meta);
+        }
+
+        var genres = extractGenres(item.genres);
+        if (genres.length) {
+          body.appendChild(buildChips(genres, 'chip', 3));
+        }
+
+        var platforms = extractPlatforms(item.platforms);
+        if (platforms.length) {
+          body.appendChild(buildChips(platforms, 'chip chip-outline', 3));
+        }
+
+        var form = document.createElement('form');
+        form.method = 'post';
+        form.action = '/add';
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'rawg_id';
+        input.value = item.id;
+        form.appendChild(input);
+        var button = document.createElement('button');
+        button.type = 'submit';
+        button.textContent = 'Add to My List';
+        form.appendChild(button);
+        body.appendChild(form);
+        card.appendChild(body);
+        return card;
+      }
+
+      function buildParams(page) {
+        var params = new URLSearchParams();
+        if (loadMore.dataset.query) {
+          params.set('query', loadMore.dataset.query);
+        }
+        if (loadMore.dataset.platform) {
+          params.set('platform', loadMore.dataset.platform);
+        }
+        if (loadMore.dataset.genre) {
+          params.set('genre', loadMore.dataset.genre);
+        }
+        params.set('page', String(page));
+        params.set('page_size', String(pageSize));
+        return params;
+      }
+
+      function updateLink(page) {
+        var hrefParams = [];
+        if (loadMore.dataset.query) {
+          hrefParams.push('q=' + encodeURIComponent(loadMore.dataset.query));
+        }
+        if (loadMore.dataset.platform) {
+          hrefParams.push('platform=' + encodeURIComponent(loadMore.dataset.platform));
+        }
+        if (loadMore.dataset.genre) {
+          hrefParams.push('genre=' + encodeURIComponent(loadMore.dataset.genre));
+        }
+        hrefParams.push('page=' + encodeURIComponent(page));
+        loadMore.href = '/search?' + hrefParams.join('&');
+      }
+
+      loadMore.addEventListener('click', function (event) {
+        event.preventDefault();
+        if (isLoading) {
+          return;
+        }
+        isLoading = true;
+        loadMore.textContent = 'Loading...';
+        var nextPage = currentPage + 1;
+        fetch('/api/search?' + buildParams(nextPage).toString())
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            var items = (data.results || []);
+            items.forEach(function (item) {
+              grid.appendChild(createCard(item));
+            });
+            currentPage = nextPage;
+            loadMore.dataset.page = String(currentPage);
+            if (indicator) {
+              indicator.textContent = 'Page ' + currentPage;
+            }
+            if (!data.next || !items.length) {
+              loadMore.remove();
+              return;
+            }
+            updateLink(currentPage + 1);
+          })
+          .catch(function () {})
+          .finally(function () {
+            isLoading = false;
+            if (loadMore && loadMore.isConnected) {
+              loadMore.textContent = originalLabel;
+            }
+          });
+      });
+      updateLink(currentPage + 1);
+    })();
+  </script>
 {% endblock %}

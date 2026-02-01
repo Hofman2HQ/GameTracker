@@ -1,8 +1,16 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
+import sys
+
+if __package__ is None or __package__ == '':
+    # Allow `python app/main.py` by adding the project root to sys.path.
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from .database import init_db, SessionLocal
+from app.database import init_db, SessionLocal
+from app.routers import api, views
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -17,8 +25,6 @@ app.mount('/static', StaticFiles(directory='app/static'), name='static')
 # Templates (for views router)
 templates = Jinja2Templates(directory='app/templates')
 
-# Routers
-from .routers import api, views  # noqa
 app.include_router(api.router, prefix='/api', tags=['api'])
 app.include_router(views.router, tags=['views'])
 

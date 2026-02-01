@@ -1,0 +1,203 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>Recommendations</h2>
+  <p class="muted">Based on your list and ratings, here are picks you do not own yet.</p>
+  {% if recommendations|length %}
+    <div class="controls pagination">
+      <span class="muted" id="recommendations-page-indicator">Page {{ page }}</span>
+      {% if next_page_url %}
+        <a
+          class="button load-more push-right"
+          id="recommendations-load-more"
+          href="{{ next_page_url }}"
+          data-page="{{ page }}"
+          data-page-size="{{ page_size }}"
+        >Load more</a>
+      {% endif %}
+    </div>
+  {% endif %}
+  {% if recommendations|length == 0 %}
+    <p>No recommendations yet. Add games and rate a few to personalize this page.</p>
+  {% else %}
+    <div class="grid" id="recommendations-grid">
+      {% for rec in recommendations %}
+        <div class="card">
+          {% if rec.background_image %}
+            <img class="thumb" src="{{ rec.background_image }}" alt="{{ rec.name }}" loading="lazy" />
+          {% endif %}
+          <div class="card-body">
+            <h3><a href="/game/{{ rec.id }}">{{ rec.name }}</a></h3>
+            <div class="meta-line">
+              {% if rec.released %}<span class="badge">Release {{ rec.released }}</span>{% endif %}
+              {% if rec.metacritic %}<span class="badge">MC {{ rec.metacritic }}</span>{% endif %}
+            </div>
+            {% if rec.genres %}
+              <div class="chips">
+                {% for genre in rec.genres[:3] %}
+                <span class="chip">{{ genre }}</span>
+                {% endfor %}
+              </div>
+            {% endif %}
+            {% if rec.platforms %}
+              <div class="chips">
+                {% for platform in rec.platforms[:3] %}
+                <span class="chip chip-outline">{{ platform }}</span>
+                {% endfor %}
+              </div>
+            {% endif %}
+            <ul class="reasons">
+              {% for reason in rec.reasons %}
+                <li>{{ reason }}</li>
+              {% endfor %}
+            </ul>
+            <form method="post" action="/add">
+              <input type="hidden" name="rawg_id" value="{{ rec.id }}" />
+              <button type="submit">Add to My List</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+  <script>
+    (function () {
+      var loadMore = document.getElementById('recommendations-load-more');
+      var grid = document.getElementById('recommendations-grid');
+      if (!loadMore || !grid) {
+        return;
+      }
+      var indicator = document.getElementById('recommendations-page-indicator');
+      var pageSize = parseInt(loadMore.dataset.pageSize || '8', 10);
+      var currentPage = parseInt(loadMore.dataset.page || '1', 10);
+      var isLoading = false;
+      var originalLabel = loadMore.textContent;
+
+      function buildChips(values, className, limit) {
+        var wrapper = document.createElement('div');
+        wrapper.className = 'chips';
+        values.slice(0, limit).forEach(function (value) {
+          var chip = document.createElement('span');
+          chip.className = className;
+          chip.textContent = value;
+          wrapper.appendChild(chip);
+        });
+        return wrapper;
+      }
+
+      function createCard(item) {
+        var card = document.createElement('div');
+        card.className = 'card';
+        if (item.background_image) {
+          var img = document.createElement('img');
+          img.className = 'thumb';
+          img.src = item.background_image;
+          img.alt = item.name || 'Game';
+          img.loading = 'lazy';
+          card.appendChild(img);
+        }
+
+        var body = document.createElement('div');
+        body.className = 'card-body';
+
+        var title = document.createElement('h3');
+        var link = document.createElement('a');
+        link.href = '/game/' + item.id;
+        link.textContent = item.name || 'Untitled';
+        title.appendChild(link);
+        body.appendChild(title);
+
+        var meta = document.createElement('div');
+        meta.className = 'meta-line';
+        if (item.released) {
+          var release = document.createElement('span');
+          release.className = 'badge';
+          release.textContent = 'Release ' + item.released;
+          meta.appendChild(release);
+        }
+        if (item.metacritic) {
+          var mc = document.createElement('span');
+          mc.className = 'badge';
+          mc.textContent = 'MC ' + item.metacritic;
+          meta.appendChild(mc);
+        }
+        if (meta.childNodes.length) {
+          body.appendChild(meta);
+        }
+
+        if (item.genres && item.genres.length) {
+          body.appendChild(buildChips(item.genres, 'chip', 3));
+        }
+        if (item.platforms && item.platforms.length) {
+          body.appendChild(buildChips(item.platforms, 'chip chip-outline', 3));
+        }
+
+        if (item.reasons && item.reasons.length) {
+          var reasons = document.createElement('ul');
+          reasons.className = 'reasons';
+          item.reasons.forEach(function (reason) {
+            var li = document.createElement('li');
+            li.textContent = reason;
+            reasons.appendChild(li);
+          });
+          body.appendChild(reasons);
+        }
+
+        var form = document.createElement('form');
+        form.method = 'post';
+        form.action = '/add';
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'rawg_id';
+        input.value = item.id;
+        form.appendChild(input);
+        var button = document.createElement('button');
+        button.type = 'submit';
+        button.textContent = 'Add to My List';
+        form.appendChild(button);
+        body.appendChild(form);
+        card.appendChild(body);
+        return card;
+      }
+
+      function updateLink(page) {
+        loadMore.href = '/recommendations?page=' + encodeURIComponent(page);
+      }
+
+      loadMore.addEventListener('click', function (event) {
+        event.preventDefault();
+        if (isLoading) {
+          return;
+        }
+        isLoading = true;
+        loadMore.textContent = 'Loading...';
+        var nextPage = currentPage + 1;
+        fetch('/api/recommendations?page=' + encodeURIComponent(nextPage) + '&page_size=' + pageSize)
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            var items = data.results || [];
+            items.forEach(function (item) {
+              grid.appendChild(createCard(item));
+            });
+            currentPage = nextPage;
+            loadMore.dataset.page = String(currentPage);
+            if (indicator) {
+              indicator.textContent = 'Page ' + currentPage;
+            }
+            if (!data.next_page || !items.length) {
+              loadMore.remove();
+              return;
+            }
+            updateLink(currentPage + 1);
+          })
+          .catch(function () {})
+          .finally(function () {
+            isLoading = false;
+            if (loadMore && loadMore.isConnected) {
+              loadMore.textContent = originalLabel;
+            }
+          });
+      });
+      updateLink(currentPage + 1);
+    })();
+  </script>
+{% endblock %}

@@ -1,9 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
-  <h2>My List{% if current_status %} – {{ current_status }}{% endif %}</h2>
+  <h2>My List{% if current_status %} - {{ current_status }}{% endif %}</h2>
 
   <form method="get" action="/list" class="controls">
-    <label>Filter:
+    <label>Status
       <select name="status" onchange="this.form.submit()">
         <option value="">All</option>
         {% for s in statuses %}
@@ -11,7 +11,24 @@
         {% endfor %}
       </select>
     </label>
-    <a class="button" href="/search">Add Games</a>
+    <label>Sort
+      <select name="sort" onchange="this.form.submit()">
+        <option value="" {% if not current_sort %}selected{% endif %}>Recent</option>
+        <option value="alpha" {% if current_sort == 'alpha' %}selected{% endif %}>Alphabetical</option>
+        <option value="mc" {% if current_sort == 'mc' %}selected{% endif %}>Metacritic</option>
+        <option value="release_desc" {% if current_sort == 'release_desc' %}selected{% endif %}>Release (New to Old)</option>
+        <option value="release_asc" {% if current_sort == 'release_asc' %}selected{% endif %}>Release (Old to New)</option>
+      </select>
+    </label>
+    <label>Hours
+      <select name="hours" onchange="this.form.submit()">
+        <option value="" {% if not current_hours %}selected{% endif %}>All</option>
+        <option value="1-6" {% if current_hours == '1-6' %}selected{% endif %}>1-6</option>
+        <option value="7-15" {% if current_hours == '7-15' %}selected{% endif %}>7-15</option>
+        <option value="15+" {% if current_hours == '15+' %}selected{% endif %}>15+</option>
+      </select>
+    </label>
+    <a class="button push-right" href="/search">Add Games</a>
   </form>
 
   {% if entries|length == 0 %}
@@ -25,7 +42,11 @@
         {% endif %}
         <div class="card-body">
           <h3><a href="/game/{{ e.game.rawg_id }}">{{ e.game.name }}</a></h3>
-          <div class="meta">Status: <strong>{{ e.status }}</strong>{% if e.rating is not none %} · Rating: {{ e.rating }}/10{% endif %}</div>
+          <div class="meta-line">
+            <span class="badge">{{ e.status }}</span>
+            {% if e.rating is not none %}<span class="badge">Score {{ e.rating }}/10</span>{% endif %}
+            {% if e.game.metacritic %}<span class="badge">MC {{ e.game.metacritic }}</span>{% endif %}
+          </div>
           {% if e.comment %}<div class="comment">{{ e.comment }}</div>{% endif %}
         </div>
       </div>
