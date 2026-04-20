@@ -90,9 +90,10 @@ async def search_page(
     q: Optional[str] = None,
     platform: Optional[str] = None,
     genre: Optional[str] = None,
-    page: int = 1
+    page: int = 1,
+    db: Session = Depends(get_db)
 ):
-    client = RawgClient()
+    client = RawgClient(db=db)
     platform_id = int(platform) if platform and platform.isdigit() else None
     genre_slug = genre or None
     page = clamp_page(page)
@@ -165,14 +166,23 @@ async def search_page(
 
 @router.post('/add')
 async def add_from_search(rawg_id: int = Form(...), db: Session = Depends(get_db)):
-    client = RawgClient()
+    from datetime import datetime
+    from ..cache import is_game_data_fresh
+    client = RawgClient(db=db)
     # Ensure game exists
     game = db.query(Game).filter(Game.rawg_id == rawg_id).first()
-    if not game:
+    if not game or not is_game_data_fresh(game):
         data = await client.get_game(rawg_id)
         mapped = client.map_game_payload(data)
-        game = Game(**mapped)
-        db.add(game)
+        if game:
+            # Update existing game
+            for key, value in mapped.items():
+                setattr(game, key, value)
+            game.last_rawg_fetch = datetime.utcnow()
+        else:
+            # Create new game
+            game = Game(**mapped, last_rawg_fetch=datetime.utcnow())
+            db.add(game)
         db.flush()
     # Create entry if not exists
     entry = db.query(Entry).filter(Entry.game_id == game.id).first()
@@ -185,31 +195,50 @@ async def add_from_search(rawg_id: int = Form(...), db: Session = Depends(get_db
 
 @router.get('/game/{rawg_id}')
 async def game_detail(request: Request, rawg_id: int, db: Session = Depends(get_db)):
+    from datetime import datetime
+    from ..cache import is_game_data_fresh
     # Fetch game from DB or RAWG
     game = db.query(Game).filter(Game.rawg_id == rawg_id).first()
+    needs_fetch = False
+
     if not game:
-        client = RawgClient()
-        data = await client.get_game(rawg_id)
-        mapped = client.map_game_payload(data)
-        game = Game(**mapped)
-        db.add(game)
-        db.commit()
-        db.refresh(game)
+        needs_fetch = True
     elif not game.description or not game.genres_json or not game.platforms_json:
-        client = RawgClient()
+        # Missing data, but check if we recently tried to fetch
+        if not is_game_data_fresh(game, max_age_days=1):
+            needs_fetch = True
+    elif not is_game_data_fresh(game):
+        # Data exists but is old (7+ days)
+        needs_fetch = True
+
+    if needs_fetch:
+        client = RawgClient(db=db)
         data = await client.get_game(rawg_id)
         mapped = client.map_game_payload(data)
-        if mapped.get('description') and not game.description:
-            game.description = mapped['description']
-        if mapped.get('genres_json') and not game.genres_json:
-            game.genres_json = mapped['genres_json']
-        if mapped.get('platforms_json') and not game.platforms_json:
-            game.platforms_json = mapped['platforms_json']
-        db.add(game)
+        if game:
+            # Update existing game
+            for key, value in mapped.items():
+                if value is not None:  # Only update if new value exists
+                    setattr(game, key, value)
+            game.last_rawg_fetch = datetime.utcnow()
+        else:
+            # Create new game
+            game = Game(**mapped, last_rawg_fetch=datetime.utcnow())
+            db.add(game)
         db.commit()
         db.refresh(game)
+
     # Entry (may be None if not added)
     entry = db.query(Entry).filter(Entry.game_id == game.id).first()
+    is_unreleased = False
+    if game.released:
+        try:
+            rel_date = datetime.strptime(game.released, '%Y-%m-%d').date()
+            if rel_date > datetime.utcnow().date():
+                is_unreleased = True
+        except ValueError:
+            pass
+
     return templates.TemplateResponse('game.html', {
         'request': request,
         'game': game,
@@ -217,7 +246,8 @@ async def game_detail(request: Request, rawg_id: int, db: Session = Depends(get_
         'statuses': STATUSES,
         'genres': game.genres,
         'platforms': game.platforms,
-        'synopsis': game.description
+        'synopsis': game.description,
+        'is_unreleased': is_unreleased
     })
 
 
@@ -236,16 +266,35 @@ def update_entry_view(
     entry = db.query(Entry).filter(Entry.id == entry_id).first()
     if not entry:
         return RedirectResponse(url='/list', status_code=303)
+        
+    import datetime
+    if status != 'PLAN' and entry.game.released:
+        try:
+            rel_date = datetime.datetime.strptime(entry.game.released, '%Y-%m-%d').date()
+            if rel_date > datetime.date.today():
+                status = 'PLAN'
+        except ValueError:
+            pass
+
     entry.status = status
-    entry.rating = int(rating) if rating not in (None, '') else None
-    entry.comment = comment
-    entry.hours_played = float(hours_played) if hours_played not in (None, '') else None
-    if isinstance(favorite, str):
-        entry.favorite = favorite.lower() in ('1', 'true', 'on', 'yes')
+    if status == 'PLAN':
+        entry.rating = None
+        entry.comment = comment
+        entry.hours_played = None
+        entry.favorite = False
+        entry.start_date = None
+        entry.end_date = None
     else:
-        entry.favorite = bool(favorite)
-    entry.start_date = start_date or None
-    entry.end_date = end_date or None
+        entry.rating = int(rating) if rating not in (None, '') else None
+        entry.comment = comment
+        entry.hours_played = max(0.0, float(hours_played)) if hours_played not in (None, '') else None
+        if isinstance(favorite, str):
+            entry.favorite = favorite.lower() in ('1', 'true', 'on', 'yes')
+        else:
+            entry.favorite = bool(favorite)
+        entry.start_date = start_date or None
+        entry.end_date = end_date or None
+        
     db.add(entry)
     db.commit()
     return RedirectResponse(url=f'/game/{entry.game.rawg_id}', status_code=303)
@@ -264,52 +313,63 @@ def delete_entry_view(entry_id: int, db: Session = Depends(get_db)):
 
 @router.get('/stats')
 def stats_page(request: Request, db: Session = Depends(get_db)):
+    import json
     totals = {s: 0 for s in STATUSES}
-    ratings: list[int] = []
+    ratings_dist = {str(i): 0 for i in range(1, 11)}
+    ratings = []
     hours = 0.0
     total = 0
+    genres_count = {}
+    platforms_count = {}
+    longest_games = []
+
     for e in db.query(Entry).all():
         totals[e.status] = totals.get(e.status, 0) + 1
         if e.rating is not None:
             ratings.append(e.rating)
+            ratings_dist[str(e.rating)] += 1
         if e.hours_played:
             hours += e.hours_played
-        total += 1
-    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else None
-    status_colors = {
-        'PLAN': 'var(--status-plan)',
-        'PLAYING': 'var(--status-playing)',
-        'COMPLETED': 'var(--status-completed)',
-        'DROPPED': 'var(--status-dropped)',
-    }
-    chart_items = []
-    chart_segments = []
-    offset = 0.0
-    if total:
-        for status in STATUSES:
-            count = totals.get(status, 0)
-            if not count:
-                continue
-            percent = round(count / total * 100, 1)
-            color = status_colors.get(status, 'var(--border)')
-            chart_items.append({
-                'label': status,
-                'value': count,
-                'percent': percent,
-                'color': color,
+            longest_games.append({
+                'name': e.game.name,
+                'hours': round(e.hours_played, 1),
+                'id': e.game.rawg_id
             })
-            end = offset + percent
-            chart_segments.append(f"{color} {offset:.2f}% {end:.2f}%")
-            offset = end
-    chart_css = f"conic-gradient({', '.join(chart_segments)})" if chart_segments else "conic-gradient(var(--border) 0 100%)"
+        total += 1
+        
+        if e.game.genres_json:
+            try:
+                g_list = json.loads(e.game.genres_json)
+                for g in g_list:
+                    genres_count[g] = genres_count.get(g, 0) + 1
+            except Exception:
+                pass
+        if e.game.platforms_json:
+            try:
+                p_list = json.loads(e.game.platforms_json)
+                for p in p_list:
+                    platforms_count[p] = platforms_count.get(p, 0) + 1
+            except Exception:
+                pass
+
+    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else None
+    completion_rate = round((totals.get('COMPLETED', 0) / total) * 100) if total else 0
+    longest_games = sorted(longest_games, key=lambda x: x['hours'], reverse=True)[:5]
+    sorted_genres = dict(sorted(genres_count.items(), key=lambda item: item[1], reverse=True)[:5])
+    sorted_platforms = dict(sorted(platforms_count.items(), key=lambda item: item[1], reverse=True)[:5])
+
     return templates.TemplateResponse('stats.html', {
         'request': request,
         'totals': totals,
         'total': total,
         'avg_rating': avg_rating,
         'hours': round(hours, 1),
-        'chart_items': chart_items,
-        'chart_css': chart_css
+        'completion_rate': completion_rate,
+        'ratings_dist_json': json.dumps(ratings_dist),
+        'genres_json': json.dumps(sorted_genres),
+        'platforms_json': json.dumps(sorted_platforms),
+        'status_json': json.dumps(totals),
+        'longest_games': longest_games
     })
 
 

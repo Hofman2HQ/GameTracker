@@ -23,7 +23,7 @@ async def build_recommendations(
     if not entries:
         return [], False
 
-    client = RawgClient()
+    client = RawgClient(db=db)
     genres_catalog = await client.list_genres()
     platforms_catalog = await client.list_platforms()
     genre_slug_map = {g['name'].lower(): g['slug'] for g in genres_catalog}
@@ -139,18 +139,27 @@ async def build_recommendations(
             if len(recommendations) >= target:
                 break
 
+    # Limit to maximum 3 API calls to conserve quota
+    max_api_calls = 3
+    api_call_count = 0
+
     for filter_set in unique_filters:
+        if api_call_count >= max_api_calls:
+            break
+
         data = await client.list_top_games(
             page_size=20,
             parent_platforms=filter_set.get('parent_platforms'),
             genres=filter_set.get('genres'),
             page=page
         )
+        api_call_count += 1
         await add_results(data)
         if len(recommendations) >= target:
             break
 
-    if len(recommendations) < target:
+    # Only fetch generic results if we haven't made too many calls and still need more
+    if len(recommendations) < target and api_call_count < max_api_calls:
         data = await client.list_top_games(page_size=20, page=page)
         await add_results(data)
 

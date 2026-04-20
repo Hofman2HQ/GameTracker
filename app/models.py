@@ -18,6 +18,7 @@ class Game(Base):
     platforms_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_rawg_fetch: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     entries: Mapped[list['Entry']] = relationship('Entry', back_populates='game', cascade='all, delete')
 
@@ -55,3 +56,13 @@ class Entry(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     game: Mapped['Game'] = relationship('Game', back_populates='entries')
+
+
+class APICache(Base):
+    __tablename__ = 'api_cache'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    cache_key: Mapped[str] = mapped_column(String(512), unique=True, index=True)
+    cache_type: Mapped[str] = mapped_column(String(50), index=True)
+    response_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)

@@ -1,6 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
-  <h2>My List{% if current_status %} - {{ current_status }}{% endif %}</h2>
+  <div class="page-intro">
+    <h2>My List{% if current_status %} - {{ current_status }}{% endif %}</h2>
+    <p>Track your gaming journey. Organize, rate, and comment on every game you play.</p>
+  </div>
 
   <form method="get" action="/list" class="controls">
     <label>Status
@@ -32,19 +35,25 @@
   </form>
 
   {% if entries|length == 0 %}
-    <p>No games yet. Use Search to add some.</p>
+    <div class="empty-state">
+      <h3>Your list is empty</h3>
+      <p>Start building your game collection by searching for titles you want to track.</p>
+      <a class="button" href="/search">Browse Games</a>
+    </div>
   {% else %}
   <div class="grid">
     {% for e in entries %}
       <div class="card">
         {% if e.game.background_image %}
-          <img class="thumb" src="{{ e.game.background_image }}" alt="{{ e.game.name }}" />
+          <a href="/game/{{ e.game.rawg_id }}"><img class="thumb" src="{{ e.game.background_image }}" alt="{{ e.game.name }}" loading="lazy" /></a>
+        {% else %}
+          <div class="thumb-placeholder">{{ e.game.name }}</div>
         {% endif %}
         <div class="card-body">
           <h3><a href="/game/{{ e.game.rawg_id }}">{{ e.game.name }}</a></h3>
           <div class="meta-line">
-            <span class="badge">{{ e.status }}</span>
-            {% if e.rating is not none %}<span class="badge">Score {{ e.rating }}/10</span>{% endif %}
+            <span class="badge badge-status" data-status="{{ e.status }}">{{ e.status }}</span>
+            {% if e.rating is not none %}<span class="badge">★ {{ e.rating }}/10</span>{% endif %}
             {% if e.game.metacritic %}<span class="badge">MC {{ e.game.metacritic }}</span>{% endif %}
           </div>
           {% if e.comment %}<div class="comment">{{ e.comment }}</div>{% endif %}

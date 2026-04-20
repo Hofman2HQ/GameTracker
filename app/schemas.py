@@ -21,7 +21,7 @@ class EntryBase(BaseModel):
     status: str = Field(default='PLAN')
     rating: Optional[int] = Field(default=None, ge=0, le=10)
     comment: Optional[str] = None
-    hours_played: Optional[float] = None
+    hours_played: Optional[float] = Field(default=None, ge=0.0)
     favorite: bool = False
     start_date: Optional[str] = None
     end_date: Optional[str] = None

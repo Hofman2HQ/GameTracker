@@ -2,20 +2,9 @@ import difflib
 import json
 import math
 import re
-import time
 from typing import Any, Dict, List, Optional
 import httpx
 from .config import RAWG_API_KEY, RAWG_BASE_URL
-
-_CACHE_TTL_SECONDS = 60 * 60
-_GENRES_CACHE: Optional[list[dict[str, Any]]] = None
-_GENRES_CACHE_AT = 0.0
-_PLATFORMS_CACHE: Optional[list[dict[str, Any]]] = None
-_PLATFORMS_CACHE_AT = 0.0
-
-
-def _cache_valid(updated_at: float) -> bool:
-    return updated_at and (time.time() - updated_at) < _CACHE_TTL_SECONDS
 
 
 def _normalize(text: str) -> str:
@@ -100,9 +89,10 @@ def rank_results(
 
 
 class RawgClient:
-    def __init__(self, api_key: str = RAWG_API_KEY, base_url: str = RAWG_BASE_URL):
+    def __init__(self, api_key: str = RAWG_API_KEY, base_url: str = RAWG_BASE_URL, db = None):
         self.api_key = api_key
         self.base_url = base_url.rstrip('/')
+        self.db = db
 
     async def list_games(
         self,
@@ -115,6 +105,25 @@ class RawgClient:
         search_precise: bool = True,
         page: Optional[int] = None
     ) -> Dict[str, Any]:
+        # Try cache if db session available
+        if self.db:
+            from .cache import get_cached_response, set_cached_response
+            cache_type = 'search' if query else 'list'
+            cached = get_cached_response(
+                self.db,
+                cache_type,
+                page_size=page_size,
+                query=query,
+                ordering=ordering,
+                platforms=platforms,
+                parent_platforms=parent_platforms,
+                genres=genres,
+                search_precise=search_precise,
+                page=page
+            )
+            if cached:
+                return cached
+
         params = {
             'key': self.api_key,
             'page_size': page_size,
@@ -135,7 +144,27 @@ class RawgClient:
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.get(f"{self.base_url}/games", params=params)
             r.raise_for_status()
-            return r.json()
+            result = r.json()
+
+        # Cache the result if db session available
+        if self.db:
+            from .cache import set_cached_response
+            cache_type = 'search' if query else 'list'
+            set_cached_response(
+                self.db,
+                cache_type,
+                result,
+                page_size=page_size,
+                query=query,
+                ordering=ordering,
+                platforms=platforms,
+                parent_platforms=parent_platforms,
+                genres=genres,
+                search_precise=search_precise,
+                page=page
+            )
+
+        return result
 
     async def search_games(
         self,
@@ -176,9 +205,13 @@ class RawgClient:
         )
 
     async def list_genres(self) -> list[dict[str, Any]]:
-        global _GENRES_CACHE, _GENRES_CACHE_AT
-        if _GENRES_CACHE and _cache_valid(_GENRES_CACHE_AT):
-            return _GENRES_CACHE
+        # Try cache if db session available
+        if self.db:
+            from .cache import get_cached_response, set_cached_response
+            cached = get_cached_response(self.db, 'genres')
+            if cached:
+                return cached.get('results', [])
+
         params = {'key': self.api_key, 'page_size': 50}
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.get(f"{self.base_url}/genres", params=params)
@@ -189,14 +222,22 @@ class RawgClient:
             for g in data.get('results', [])
             if g.get('id') and g.get('name') and g.get('slug')
         ]
-        _GENRES_CACHE = results
-        _GENRES_CACHE_AT = time.time()
+
+        # Cache the result if db session available
+        if self.db:
+            from .cache import set_cached_response
+            set_cached_response(self.db, 'genres', {'results': results})
+
         return results
 
     async def list_platforms(self) -> list[dict[str, Any]]:
-        global _PLATFORMS_CACHE, _PLATFORMS_CACHE_AT
-        if _PLATFORMS_CACHE and _cache_valid(_PLATFORMS_CACHE_AT):
-            return _PLATFORMS_CACHE
+        # Try cache if db session available
+        if self.db:
+            from .cache import get_cached_response, set_cached_response
+            cached = get_cached_response(self.db, 'platforms')
+            if cached:
+                return cached.get('results', [])
+
         params = {'key': self.api_key, 'page_size': 50}
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.get(f"{self.base_url}/platforms/lists/parents", params=params)
@@ -207,8 +248,12 @@ class RawgClient:
             for p in data.get('results', [])
             if p.get('id') and p.get('name')
         ]
-        _PLATFORMS_CACHE = results
-        _PLATFORMS_CACHE_AT = time.time()
+
+        # Cache the result if db session available
+        if self.db:
+            from .cache import set_cached_response
+            set_cached_response(self.db, 'platforms', {'results': results})
+
         return results
 
     async def get_game(self, rawg_id: int) -> Dict[str, Any]:

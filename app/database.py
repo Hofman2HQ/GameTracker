@@ -20,3 +20,6 @@ def init_db():
             if "description" not in columns:
                 conn.execute(text("ALTER TABLE games ADD COLUMN description TEXT"))
                 conn.commit()
+            if "last_rawg_fetch" not in columns:
+                conn.execute(text("ALTER TABLE games ADD COLUMN last_rawg_fetch DATETIME"))
+                conn.commit()

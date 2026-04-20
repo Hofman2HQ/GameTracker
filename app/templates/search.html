@@ -1,28 +1,44 @@
 {% extends 'base.html' %}
 {% block content %}
-  <h2>Search</h2>
-  {% if not q %}
-    <p class="muted">Showing top games. Use the search bar or filters to refine.</p>
-  {% else %}
-    <p class="muted">Results for "{{ q }}".</p>
-  {% endif %}
+  <div class="page-intro">
+    <h2>Search Games</h2>
+    {% if not q and not platform and not genre %}
+      <p>Discover and add games to your collection. Browse top-rated titles or search for specific games.</p>
+    {% else %}
+      <p>
+        {% if q %}Showing results for "<strong>{{ q }}</strong>"{% endif %}
+        {% if platform %}
+          {% for p in platforms %}
+            {% if p.id == platform %} on <strong>{{ p.name }}</strong>{% endif %}
+          {% endfor %}
+        {% endif %}
+        {% if genre %}
+          {% for g in genres %}
+            {% if g.slug == genre %} in <strong>{{ g.name }}</strong>{% endif %}
+          {% endfor %}
+        {% endif %}
+      </p>
+    {% endif %}
+  </div>
   <form method="get" action="/search" class="controls search-bar">
     <div class="search-box">
-      <input id="search-input" type="search" name="q" placeholder="Search by title, genre, or keyword" value="{{ q }}" autocomplete="off" />
+      <label for="search-input">Search
+        <input id="search-input" type="search" name="q" placeholder="Search by title, genre, or keyword" value="{{ q }}" autocomplete="off" />
+      </label>
       <div id="search-suggestions" class="suggestions" role="listbox" aria-label="Search suggestions"></div>
     </div>
     <div class="filters">
-      <label>Platform
+      <label for="platform-select">Platform
         <select name="platform" id="platform-select">
-          <option value="">All</option>
+          <option value="">All Platforms</option>
           {% for p in platforms %}
             <option value="{{ p.id }}" {% if p.id == platform %}selected{% endif %}>{{ p.name }}</option>
           {% endfor %}
         </select>
       </label>
-      <label>Genre
+      <label for="genre-select">Genre
         <select name="genre" id="genre-select">
-          <option value="">All</option>
+          <option value="">All Genres</option>
           {% for g in genres %}
             <option value="{{ g.slug }}" {% if g.slug == genre %}selected{% endif %}>{{ g.name }}</option>
           {% endfor %}
@@ -30,23 +46,33 @@
       </label>
     </div>
     <button type="submit">Search</button>
+    {% if q or platform or genre %}
+      <a href="/search" class="button clear-filters">Clear All</a>
+    {% endif %}
   </form>
 
+
+
   {% if (q or platform or genre) and results|length == 0 %}
-    <p>No results found.</p>
+    <div class="empty-state">
+      <h3>No results found</h3>
+      <p>Try adjusting your search terms or filters to find more games.</p>
+    </div>
   {% endif %}
 
   <div class="grid" id="search-grid">
   {% for g in results %}
     <div class="card">
       {% if g.background_image %}
-        <img class="thumb" src="{{ g.background_image }}" alt="{{ g.name }}" loading="lazy" />
+        <a href="/game/{{ g.id }}"><img class="thumb" src="{{ g.background_image }}" alt="{{ g.name }}" loading="lazy" /></a>
+      {% else %}
+        <div class="thumb-placeholder">{{ g.name }}</div>
       {% endif %}
       <div class="card-body">
         <h3><a href="/game/{{ g.id }}">{{ g.name }}</a></h3>
         <div class="meta-line">
-          {% if g.released %}<span class="badge">Release {{ g.released }}</span>{% endif %}
-          {% if g.metacritic %}<span class="badge">MC {{ g.metacritic }}</span>{% endif %}
+          {% if g.released %}<span class="badge">{{ g.released }}</span>{% endif %}
+          {% if g.metacritic %}<span class="badge badge-strong">MC {{ g.metacritic }}</span>{% endif %}
         </div>
         {% if g.genres %}
           <div class="chips">
@@ -159,7 +185,7 @@
         }
         timer = setTimeout(function () {
           fetchSuggestions(value);
-        }, 150);
+        }, 400);
       });
       document.addEventListener('click', function (event) {
         if (!list.contains(event.target) && event.target !== input) {
@@ -326,9 +352,7 @@
 
       loadMore.addEventListener('click', function (event) {
         event.preventDefault();
-        if (isLoading) {
-          return;
-        }
+        if (isLoading) return;
         isLoading = true;
         loadMore.textContent = 'Loading...';
         var nextPage = currentPage + 1;
@@ -341,24 +365,87 @@
             });
             currentPage = nextPage;
             loadMore.dataset.page = String(currentPage);
-            if (indicator) {
-              indicator.textContent = 'Page ' + currentPage;
-            }
+            if (indicator) indicator.textContent = 'Page ' + currentPage;
             if (!data.next || !items.length) {
-              loadMore.remove();
-              return;
+              loadMore.style.display = 'none';
             }
             updateLink(currentPage + 1);
           })
           .catch(function () {})
           .finally(function () {
             isLoading = false;
-            if (loadMore && loadMore.isConnected) {
-              loadMore.textContent = originalLabel;
-            }
+            if (loadMore && loadMore.isConnected) loadMore.textContent = originalLabel;
           });
       });
       updateLink(currentPage + 1);
+
+      // Dynamic Form Filtering
+      var searchForm = document.querySelector('.search-bar');
+      if (searchForm) {
+        searchForm.addEventListener('submit', function(e) {
+          e.preventDefault();
+          triggerSearch();
+        });
+        var selects = searchForm.querySelectorAll('select');
+        for (var i = 0; i < selects.length; i++) {
+          selects[i].addEventListener('change', triggerSearch);
+        }
+      }
+
+      function triggerSearch() {
+        var qInput = document.getElementById('search-input');
+        var pSel = document.getElementById('platform-select');
+        var gSel = document.getElementById('genre-select');
+        var query = qInput ? qInput.value.trim() : '';
+        var plat = pSel ? pSel.value : '';
+        var gen = gSel ? gSel.value : '';
+        
+        var params = new URLSearchParams();
+        if (query) params.set('query', query);
+        if (plat) params.set('platform', plat);
+        if (gen) params.set('genre', gen);
+        params.set('page_size', String(pageSize));
+        params.set('page', '1');
+        
+        var emptyStater = document.querySelector('.empty-state');
+        if (emptyStater) emptyStater.style.display = 'none';
+
+        grid.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Loading...</div>';
+        
+        fetch('/api/search?' + params.toString())
+          .then(res => res.json())
+          .then(data => {
+             grid.innerHTML = '';
+             var items = data.results || [];
+             if (!items.length) {
+               grid.innerHTML = '<div class="empty-state" style="grid-column: 1/-1;"><h3>No results found</h3><p>Try adjusting your search terms or filters.</p></div>';
+             } else {
+               items.forEach(item => grid.appendChild(createCard(item)));
+             }
+             currentPage = 1;
+             if (loadMore) {
+               loadMore.dataset.query = query;
+               loadMore.dataset.platform = plat;
+               loadMore.dataset.genre = gen;
+               loadMore.dataset.page = '1';
+               if (indicator) indicator.textContent = 'Page 1';
+               if (!data.next || !items.length) {
+                 loadMore.style.display = 'none';
+               } else {
+                 loadMore.style.display = 'inline-flex';
+                 updateLink(2);
+               }
+             }
+             
+             // Update URL silently
+             var winParams = new URLSearchParams();
+             if (query) winParams.set('q', query);
+             if (plat) winParams.set('platform', plat);
+             if (gen) winParams.set('genre', gen);
+             var newStr = winParams.toString();
+             window.history.pushState({}, '', '/search' + (newStr ? '?' + newStr : ''));
+          });
+      }
     })();
   </script>
 {% endblock %}

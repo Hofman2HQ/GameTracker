@@ -4,10 +4,12 @@
     <div class="detail-media">
       {% if game.background_image %}
         <img class="hero" src="{{ game.background_image }}" alt="{{ game.name }}" />
+      {% else %}
+        <div class="hero" style="display: flex; align-items: center; justify-content: center; color: var(--muted); font-weight: 600; text-align: center; padding: 40px;">{{ game.name }}</div>
       {% endif %}
       <div class="media-badges">
         {% if game.metacritic %}<span class="badge badge-strong">MC {{ game.metacritic }}</span>{% endif %}
-        {% if game.released %}<span class="badge">Released {{ game.released }}</span>{% endif %}
+        {% if game.released %}<span class="badge">{{ game.released }}</span>{% endif %}
       </div>
     </div>
     <div class="detail-body">
@@ -58,12 +60,16 @@
           <label>Status
             <select name="status">
               {% for s in statuses %}
+                {% if is_unreleased and s != 'PLAN' %}
+                <option value="{{ s }}" disabled>{{ s }} (Unreleased)</option>
+                {% else %}
                 <option value="{{ s }}" {% if s == entry.status %}selected{% endif %}>{{ s }}</option>
+                {% endif %}
               {% endfor %}
             </select>
           </label>
           <label>Score (1-10)
-            <select name="rating">
+            <select name="rating" class="plan-disabled">
               <option value="">No rating</option>
               {% for r in range(1, 11) %}
                 <option value="{{ r }}" {% if entry.rating == r %}selected{% endif %}>{{ r }}</option>
@@ -71,17 +77,17 @@
             </select>
           </label>
           <label>Hours Played
-            <input type="number" name="hours_played" step="0.1" value="{{ entry.hours_played if entry.hours_played is not none else '' }}" />
+            <input type="number" name="hours_played" step="0.1" min="0" value="{{ entry.hours_played if entry.hours_played is not none else '' }}" class="plan-disabled" />
           </label>
           <label>Start Date
-            <input type="date" name="start_date" value="{{ entry.start_date if entry.start_date else '' }}" />
+            <input type="date" name="start_date" value="{{ entry.start_date if entry.start_date else '' }}" class="plan-disabled" />
           </label>
           <label>End Date
-            <input type="date" name="end_date" value="{{ entry.end_date if entry.end_date else '' }}" />
+            <input type="date" name="end_date" value="{{ entry.end_date if entry.end_date else '' }}" class="plan-disabled" />
           </label>
           <div class="favorite-control">
             <input type="hidden" name="favorite" id="favorite-input" value="{{ 1 if entry.favorite else 0 }}" />
-            <button type="button" class="favorite-button" id="favorite-button" aria-pressed="{{ 'true' if entry.favorite else 'false' }}">
+            <button type="button" class="favorite-button plan-disabled" id="favorite-button" aria-pressed="{{ 'true' if entry.favorite else 'false' }}">
               <span class="favorite-text">{{ 'Favorited' if entry.favorite else 'Mark Favorite' }}</span>
             </button>
           </div>
@@ -110,9 +116,47 @@
             }
             setState(button.getAttribute('aria-pressed') === 'true');
             button.addEventListener('click', function () {
+              // Prevent click action if disabled visually
+              if (button.style.pointerEvents === 'none') return;
               var active = button.getAttribute('aria-pressed') === 'true';
               setState(!active);
             });
+
+            // Status toggling script
+            var statusSelect = document.querySelector('select[name="status"]');
+            var planDisabledElements = document.querySelectorAll('.plan-disabled');
+            
+            function togglePlanFields() {
+              if (!statusSelect) return;
+              var isPlan = statusSelect.value === 'PLAN';
+              planDisabledElements.forEach(function (el) {
+                el.disabled = isPlan;
+                if (isPlan) {
+                  // reset visually or disable UI elements
+                  if (el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                    if (el.parentElement.tagName === 'LABEL') {
+                      el.parentElement.style.opacity = '0.5';
+                    }
+                  } else if (el.classList.contains('favorite-button')) {
+                    el.style.opacity = '0.5';
+                    el.style.pointerEvents = 'none';
+                  }
+                } else {
+                  if (el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                    if (el.parentElement.tagName === 'LABEL') {
+                      el.parentElement.style.opacity = '1';
+                    }
+                  } else if (el.classList.contains('favorite-button')) {
+                    el.style.opacity = '1';
+                    el.style.pointerEvents = 'auto';
+                  }
+                }
+              });
+            }
+            if (statusSelect) {
+              statusSelect.addEventListener('change', togglePlanFields);
+              togglePlanFields(); // immediately execute on load to render view state
+            }
           })();
         </script>
       {% else %}

@@ -1,33 +1,263 @@
 {% extends 'base.html' %}
 {% block content %}
-  <h2>Stats</h2>
-  <div class="stats-layout">
-    <div class="stat-card">
-      <div class="pie" style="--chart: {{ chart_css }};"></div>
-      {% if chart_items|length == 0 %}
-        <p class="muted">No entries yet. Add games to see your breakdown.</p>
-      {% else %}
-        <div class="legend">
-          {% for item in chart_items %}
-            <div class="legend-row">
-              <span class="legend-swatch" style="background: {{ item.color }}"></span>
-              <span class="legend-label">{{ item.label }}</span>
-              <span class="legend-value">{{ item.value }} ({{ item.percent }}%)</span>
-            </div>
-            <div class="legend-bar">
-              <div class="legend-fill" style="width: {{ item.percent }}%; background: {{ item.color }}"></div>
-            </div>
-          {% endfor %}
-        </div>
-      {% endif %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <div class="stats-header" style="margin-bottom: 24px;">
+    <h2 style="font-size: 32px;">Your Gaming Overview</h2>
+    <p class="muted">A complete breakdown of your logged data.</p>
+  </div>
+
+  <div class="dashboard-hero">
+    <div class="hero-card">
+      <span class="hero-label">Total Games</span>
+      <span class="hero-val">{{ total }}</span>
     </div>
-    <div class="stats">
-      <div class="stat">Total: <strong>{{ total }}</strong></div>
-      {% for k, v in totals.items() %}
-        <div class="stat">{{ k }}: <strong>{{ v }}</strong></div>
-      {% endfor %}
-      <div class="stat">Avg Rating: <strong>{{ avg_rating if avg_rating is not none else '-' }}</strong></div>
-      <div class="stat">Hours Played: <strong>{{ hours }}</strong></div>
+    <div class="hero-card">
+      <span class="hero-label">Hours Logged</span>
+      <span class="hero-val">{{ hours }}h</span>
+    </div>
+    <div class="hero-card">
+      <span class="hero-label">Avg Rating</span>
+      <span class="hero-val">★ {{ avg_rating if avg_rating else '-' }}</span>
+    </div>
+    <div class="hero-card">
+      <span class="hero-label">Completion %</span>
+      <span class="hero-val">{{ completion_rate }}%</span>
     </div>
   </div>
+
+  <div class="dashboard-grid">
+    
+    <div class="dashboard-card">
+      <h3>Library Status</h3>
+      <div class="chart-container">
+        <canvas id="statusChart"></canvas>
+      </div>
+    </div>
+    
+    <div class="dashboard-card">
+      <h3>Rating Distribution</h3>
+      <div class="chart-container">
+        <canvas id="ratingChart"></canvas>
+      </div>
+    </div>
+
+    <div class="dashboard-card">
+      <h3>Top Genres</h3>
+      <div class="chart-container">
+        <canvas id="genreChart"></canvas>
+      </div>
+    </div>
+
+    <div class="dashboard-card">
+      <h3>Top Platforms</h3>
+      <div class="chart-container">
+        <canvas id="platformChart"></canvas>
+      </div>
+    </div>
+
+    <div class="dashboard-card">
+      <h3>Longest Playtimes</h3>
+      <div class="chart-container">
+        <canvas id="playtimeChart"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+  <script id="dashboard-data" type="application/json">
+    {
+      "status": {{ status_json | safe }},
+      "ratings": {{ ratings_dist_json | safe }},
+      "genres": {{ genres_json | safe }},
+      "platforms": {{ platforms_json | safe }},
+      "longest": {{ longest_games | tojson }}
+    }
+  </script>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      // Configuration to match application themes easily
+      Chart.defaults.color = '#7e8790';
+      Chart.defaults.font.family = '"Inter", sans-serif';
+      
+      const themeColors = {
+        accent: '#f26b3a',
+        accentDark: '#c24b20',
+        plan: '#ab9df2',
+        playing: '#78dce8',
+        completed: '#a9dc76',
+        dropped: '#ff6188'
+      };
+
+      const rawData = document.getElementById('dashboard-data').textContent;
+      let dbData;
+      try { dbData = JSON.parse(rawData); } catch(e) { dbData = {}; }
+
+      // 1. Status Doughnut Chart
+      const ctxStatus = document.getElementById('statusChart').getContext('2d');
+      new Chart(ctxStatus, {
+        type: 'doughnut',
+        data: {
+          labels: ['Plan', 'Playing', 'Completed', 'Dropped'],
+          datasets: [{
+            data: [
+              dbData.status.PLAN || 0,
+              dbData.status.PLAYING || 0,
+              dbData.status.COMPLETED || 0,
+              dbData.status.DROPPED || 0
+            ],
+            backgroundColor: [themeColors.plan, themeColors.playing, themeColors.completed, themeColors.dropped],
+            borderWidth: 0,
+            hoverOffset: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'right' }
+          },
+          cutout: '70%'
+        }
+      });
+
+      // 2. Rating Distribution Bar Chart
+      const rLabels = Array.from({length: 10}, (_, i) => i + 1);
+      const rData = rLabels.map(l => dbData.ratings[l] || 0);
+      const ctxRating = document.getElementById('ratingChart').getContext('2d');
+      
+      // Calculate cool fade gradient
+      const ratingGradient = ctxRating.createLinearGradient(0, 0, 0, 300);
+      ratingGradient.addColorStop(0, themeColors.accent);
+      ratingGradient.addColorStop(1, 'rgba(242, 107, 58, 0.1)');
+
+      new Chart(ctxRating, {
+        type: 'bar',
+        data: {
+          labels: rLabels.map(l => '★ ' + l),
+          datasets: [{
+            label: 'Games',
+            data: rData,
+            backgroundColor: ratingGradient,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { color: 'rgba(126, 135, 144, 0.1)' }, ticks: { stepSize: 1 } },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+
+      // 3. Genres Horizontal Bar Chart
+      const gLabels = Object.keys(dbData.genres);
+      const gVals = Object.values(dbData.genres);
+      const ctxGenre = document.getElementById('genreChart').getContext('2d');
+      new Chart(ctxGenre, {
+        type: 'bar',
+        data: {
+          labels: gLabels,
+          datasets: [{
+            data: gVals,
+            backgroundColor: themeColors.playing,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { beginAtZero: true, grid: { color: 'rgba(126, 135, 144, 0.1)' }, ticks: { stepSize: 1 } },
+            y: { grid: { display: false } }
+          }
+        }
+      });
+
+      // 4. Platforms Horizontal Bar Chart
+      const pLabels = Object.keys(dbData.platforms);
+      const pVals = Object.values(dbData.platforms);
+      const ctxPlatform = document.getElementById('platformChart').getContext('2d');
+      new Chart(ctxPlatform, {
+        type: 'bar',
+        data: {
+          labels: pLabels,
+          datasets: [{
+            data: pVals,
+            backgroundColor: themeColors.plan,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { beginAtZero: true, ticks: { stepSize: 1 } },
+            y: { grid: { display: false } }
+          }
+        }
+      });
+
+      // 5. Playtime Horizontal Bar Chart
+      const longestData = dbData.longest || [];
+      const ptLabels = longestData.map(g => g.name.length > 20 ? g.name.substring(0,20)+'...' : g.name);
+      const ptVals = longestData.map(g => g.hours);
+      const ctxPlaytime = document.getElementById('playtimeChart').getContext('2d');
+      new Chart(ctxPlaytime, {
+        type: 'bar',
+        data: {
+          labels: ptLabels,
+          datasets: [{
+            data: ptVals,
+            backgroundColor: themeColors.completed,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { beginAtZero: true },
+            y: { grid: { display: false } }
+          }
+        }
+      });
+
+      // Responsive Dark Theme Colors Hook
+      function updateChartColors() {
+        let style = getComputedStyle(document.body);
+        let muted = style.getPropertyValue('--muted').trim() || '#7e8790';
+        let borderTick = document.documentElement.getAttribute('data-theme') === 'dark' 
+                         ? 'rgba(255, 255, 255, 0.05)' 
+                         : 'rgba(126, 135, 144, 0.1)';
+                         
+        Chart.defaults.color = muted;
+        Object.values(Chart.instances).forEach(chart => {
+            if (chart.options.scales) {
+                if (chart.options.scales.x && chart.options.scales.x.grid) {
+                    chart.options.scales.x.grid.color = borderTick;
+                }
+                if (chart.options.scales.y && chart.options.scales.y.grid) {
+                    chart.options.scales.y.grid.color = borderTick;
+                }
+            }
+            chart.update();
+        });
+      }
+
+      window.addEventListener('theme-changed', updateChartColors);
+      updateChartColors();
+
+    });
+  </script>
 {% endblock %}

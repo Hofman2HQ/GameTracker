@@ -15,6 +15,15 @@ from app.routers import api, views
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    # Clean up expired cache entries on startup
+    from app.cache import cleanup_expired_cache
+    db = SessionLocal()
+    try:
+        deleted = cleanup_expired_cache(db)
+        if deleted > 0:
+            print(f"Cleaned up {deleted} expired cache entries")
+    finally:
+        db.close()
     yield
 
 app = FastAPI(title='GameTracker', lifespan=lifespan)
@@ -30,4 +39,4 @@ app.include_router(views.router, tags=['views'])
 
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run('app.main:app', host='127.0.0.1', port=8000, reload=True)
+    uvicorn.run('app.main:app', host='0.0.0.0', port=8000, reload=True)

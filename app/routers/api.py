@@ -37,14 +37,23 @@ def list_entries(status: Optional[str] = None, db: Session = Depends(get_db)):
 
 @router.post('/entries', response_model=EntryOut)
 async def add_entry(payload: EntryCreate, db: Session = Depends(get_db)):
+    from datetime import datetime
+    from ..cache import is_game_data_fresh
     # Ensure game exists in DB
     game = db.query(Game).filter(Game.rawg_id == payload.rawg_id).first()
-    if not game:
-        client = RawgClient()
+    if not game or not is_game_data_fresh(game):
+        client = RawgClient(db=db)
         data = await client.get_game(payload.rawg_id)
         mapped = client.map_game_payload(data)
-        game = Game(**mapped)
-        db.add(game)
+        if game:
+            # Update existing game
+            for key, value in mapped.items():
+                setattr(game, key, value)
+            game.last_rawg_fetch = datetime.utcnow()
+        else:
+            # Create new game
+            game = Game(**mapped, last_rawg_fetch=datetime.utcnow())
+            db.add(game)
         db.flush()
     # Check existing entry for this game
     existing = db.query(Entry).filter(Entry.game_id == game.id).first()
@@ -96,9 +105,10 @@ async def search(
     mode: str = 'search',
     platform: Optional[str] = None,
     genre: Optional[str] = None,
-    page: int = 1
+    page: int = 1,
+    db: Session = Depends(get_db)
 ):
-    client = RawgClient()
+    client = RawgClient(db=db)
     page_size = max(1, min(page_size, 40))
     page = max(1, min(page, 50))
     platform_id = int(platform) if platform and platform.isdigit() else None

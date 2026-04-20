@@ -1,7 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
-  <h2>Recommendations</h2>
-  <p class="muted">Based on your list and ratings, here are picks you do not own yet.</p>
+  <div class="page-intro">
+    <h2>Recommendations</h2>
+    <p>Personalized game suggestions based on your collection, ratings, and favorite genres.</p>
+  </div>
   {% if recommendations|length %}
     <div class="controls pagination">
       <span class="muted" id="recommendations-page-indicator">Page {{ page }}</span>
@@ -17,19 +19,25 @@
     </div>
   {% endif %}
   {% if recommendations|length == 0 %}
-    <p>No recommendations yet. Add games and rate a few to personalize this page.</p>
+    <div class="empty-state">
+      <h3>No recommendations available</h3>
+      <p>Start building your collection and rating games to get personalized recommendations.</p>
+      <a class="button" href="/search">Explore Games</a>
+    </div>
   {% else %}
     <div class="grid" id="recommendations-grid">
       {% for rec in recommendations %}
         <div class="card">
           {% if rec.background_image %}
             <img class="thumb" src="{{ rec.background_image }}" alt="{{ rec.name }}" loading="lazy" />
+          {% else %}
+            <div class="thumb-placeholder">{{ rec.name }}</div>
           {% endif %}
           <div class="card-body">
             <h3><a href="/game/{{ rec.id }}">{{ rec.name }}</a></h3>
             <div class="meta-line">
-              {% if rec.released %}<span class="badge">Release {{ rec.released }}</span>{% endif %}
-              {% if rec.metacritic %}<span class="badge">MC {{ rec.metacritic }}</span>{% endif %}
+              {% if rec.released %}<span class="badge">{{ rec.released }}</span>{% endif %}
+              {% if rec.metacritic %}<span class="badge badge-strong">MC {{ rec.metacritic }}</span>{% endif %}
             </div>
             {% if rec.genres %}
               <div class="chips">

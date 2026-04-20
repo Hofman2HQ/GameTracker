@@ -28,10 +28,10 @@ RAWG_API_KEY=7038320ea036447db7d54309ac42cd54
 4) Run the server:
 
 ```
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --host 0.0.0.0 --reload
 ```
 
-Open http://127.0.0.1:8000
+Open http://localhost:8000 (or on mobile via your local IP address)
 
 - My List: `/list`
 - Search: `/search`
