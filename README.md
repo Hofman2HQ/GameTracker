@@ -18,11 +18,11 @@ End-to-end game tracking app inspired by MyAnimeList.
 pip install -r requirements.txt
 ```
 
-3) Configure your RAWG API key (already set by default):
+3) Configure your RAWG API key:
 
 - `.env`
 ```
-RAWG_API_KEY=7038320ea036447db7d54309ac42cd54
+RAWG_API_KEY=your_rawg_api_key_here
 ```
 
 4) Run the server:
