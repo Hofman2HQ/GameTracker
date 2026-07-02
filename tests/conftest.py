@@ -16,10 +16,10 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("RAWG_API_KEY", "test_key")
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from fastapi.testclient import TestClient
 
 # ── import app modules *after* the env-var is set ──────────────────────────
 import app.database as db_module
@@ -64,6 +64,17 @@ def clear_tables():
     with test_engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             conn.execute(table.delete())
+
+
+@pytest.fixture(autouse=True)
+def no_screenshot_fetch():
+    """Keep tests hermetic: the game detail page fetches screenshots from RAWG
+    for games that have never had them fetched.  Individual tests can re-patch
+    ``RawgClient.list_screenshots`` to supply data."""
+    from unittest.mock import MagicMock, patch
+
+    with patch("app.rawg.RawgClient.list_screenshots", new=MagicMock(return_value=[])):
+        yield
 
 
 @pytest.fixture()

@@ -1,0 +1,15 @@
+services:
+  gametracker:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - RAWG_API_KEY=${RAWG_API_KEY:?Set RAWG_API_KEY in .env}
+      - DATABASE_URL=sqlite:////data/gametracker.db
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - gametracker-data:/data
+    restart: unless-stopped
+
+volumes:
+  gametracker-data:

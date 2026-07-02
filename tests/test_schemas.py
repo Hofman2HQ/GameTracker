@@ -5,8 +5,7 @@ Tests for Pydantic schemas in app/schemas.py.
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import EntryBase, EntryCreate, EntryUpdate, GameBase, GameOut
-
+from app.schemas import EntryBase, EntryCreate, EntryUpdate, GameBase
 
 # ---------------------------------------------------------------------------
 # EntryBase / EntryCreate validation

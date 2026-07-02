@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="page-intro">
+    <h2>Debug Tools</h2>
+    <p>Maintenance actions for the local database and RAWG cache.</p>
+  </div>
+
+  <div id="debug-result" class="alert-banner" role="status" hidden></div>
+
+  <div class="info-grid debug-grid">
+    <div class="info-card">
+      <div class="label">Force fresh data</div>
+      <p class="muted">Clears the cached RAWG responses and marks every stored game stale, so the next time you open a page the data is re-fetched fresh from the API. Your list, ratings, and feedback are kept.</p>
+      <button type="button" class="debug-action" data-endpoint="/api/debug/refresh">Clear cache &amp; refetch</button>
+    </div>
+    <div class="info-card">
+      <div class="label">Reset database</div>
+      <p class="muted"><strong>Destructive.</strong> Deletes your entire library — all entries, games, recommendation feedback, and cache. This cannot be undone. Consider exporting a backup first (<a href="/api/export/json">download JSON backup</a>).</p>
+      <button type="button" class="debug-action danger" data-endpoint="/api/debug/reset"
+              data-confirm="This permanently deletes your entire library. Continue?">Reset everything</button>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var result = document.getElementById('debug-result');
+      function show(msg, ok) {
+        result.hidden = false;
+        result.textContent = msg;
+        result.style.borderColor = ok ? 'var(--status-completed)' : 'var(--danger)';
+      }
+      document.querySelectorAll('.debug-action').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (btn.dataset.confirm && !window.confirm(btn.dataset.confirm)) {
+            return;
+          }
+          btn.disabled = true;
+          var original = btn.textContent;
+          btn.textContent = 'Working…';
+          fetch(btn.dataset.endpoint, { method: 'POST' })
+            .then(function (res) {
+              if (!res.ok) { throw new Error('Request failed (' + res.status + ')'); }
+              return res.json();
+            })
+            .then(function (data) {
+              var parts = Object.keys(data).map(function (k) {
+                return k.replace(/_/g, ' ') + ': ' + data[k];
+              });
+              show('Done — ' + parts.join(', '), true);
+            })
+            .catch(function (err) { show('Error: ' + err.message, false); })
+            .finally(function () {
+              btn.disabled = false;
+              btn.textContent = original;
+            });
+        });
+      });
+    })();
+  </script>
+{% endblock %}

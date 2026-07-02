@@ -5,13 +5,10 @@ RAWG HTTP calls are mocked via unittest.mock so that tests are hermetic.
 """
 
 import json
-from datetime import datetime
-from unittest.mock import AsyncMock, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from app.models import Entry, Game
-
+from app.timeutil import utcnow
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -26,7 +23,7 @@ def _make_game(db, rawg_id=1, name="Test Game", slug="test-game",
         name=name,
         genres_json=json.dumps(genres or []),
         platforms_json=json.dumps(platforms or []),
-        last_rawg_fetch=datetime.utcnow(),
+        last_rawg_fetch=utcnow(),
     )
     db.add(game)
     db.flush()
@@ -110,10 +107,10 @@ class TestAddEntry:
     def test_adds_new_entry(self, client, db):
         with patch(
             "app.routers.api.RawgClient.get_game",
-            new=AsyncMock(return_value=RAWG_GAME_RESPONSE),
+            new=MagicMock(return_value=RAWG_GAME_RESPONSE),
         ):
             r = client.post("/api/entries", json={"rawg_id": 999, "status": "PLAN"})
-        assert r.status_code == 200
+        assert r.status_code == 201
         body = r.json()
         assert body["game"]["rawg_id"] == 999
         assert body["status"] == "PLAN"
@@ -122,7 +119,7 @@ class TestAddEntry:
         _make_game(db, rawg_id=1)
         with patch(
             "app.routers.api.RawgClient.get_game",
-            new=AsyncMock(return_value={**RAWG_GAME_RESPONSE, "id": 1}),
+            new=MagicMock(return_value={**RAWG_GAME_RESPONSE, "id": 1}),
         ):
             r = client.post("/api/entries", json={"rawg_id": 1, "status": "PLAN"})
         assert r.status_code == 409
@@ -130,7 +127,7 @@ class TestAddEntry:
     def test_rating_and_fields_stored(self, client, db):
         with patch(
             "app.routers.api.RawgClient.get_game",
-            new=AsyncMock(return_value=RAWG_GAME_RESPONSE),
+            new=MagicMock(return_value=RAWG_GAME_RESPONSE),
         ):
             r = client.post("/api/entries", json={
                 "rawg_id": 999,
@@ -140,7 +137,7 @@ class TestAddEntry:
                 "favorite": True,
                 "comment": "Loved it",
             })
-        assert r.status_code == 200
+        assert r.status_code == 201
         body = r.json()
         assert body["rating"] == 8
         assert body["hours_played"] == 50.0
@@ -262,7 +259,7 @@ class TestSearchApi:
     def test_returns_results(self, client):
         with patch(
             "app.routers.api.RawgClient.search_games",
-            new=AsyncMock(return_value=SEARCH_RESPONSE),
+            new=MagicMock(return_value=SEARCH_RESPONSE),
         ):
             r = client.get("/api/search?query=witcher")
         assert r.status_code == 200
@@ -272,7 +269,7 @@ class TestSearchApi:
     def test_empty_query_calls_list_top_games(self, client):
         with patch(
             "app.routers.api.RawgClient.list_top_games",
-            new=AsyncMock(return_value=SEARCH_RESPONSE),
+            new=MagicMock(return_value=SEARCH_RESPONSE),
         ) as mock_top:
             r = client.get("/api/search")
         assert r.status_code == 200
@@ -282,7 +279,7 @@ class TestSearchApi:
         r_mock = {"results": [], "next": None}
         with patch(
             "app.routers.api.RawgClient.list_top_games",
-            new=AsyncMock(return_value=r_mock),
+            new=MagicMock(return_value=r_mock),
         ):
             r = client.get("/api/search?mode=autocomplete")
         assert r.status_code == 200
@@ -291,7 +288,7 @@ class TestSearchApi:
     def test_page_size_clamped(self, client):
         with patch(
             "app.routers.api.RawgClient.list_top_games",
-            new=AsyncMock(return_value=SEARCH_RESPONSE),
+            new=MagicMock(return_value=SEARCH_RESPONSE),
         ) as mock_top:
             client.get("/api/search?page_size=100")
         # page_size is clamped to 40.

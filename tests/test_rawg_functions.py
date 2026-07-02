@@ -4,16 +4,16 @@ No database or HTTP connections are required.
 """
 
 import pytest
-from app.rawg import (
-    _normalize,
-    _token_overlap,
-    _important_tokens,
-    _token_match_ratio,
-    _popularity_score,
-    rank_results,
-    RawgClient,
-)
 
+from app.rawg import (
+    RawgClient,
+    _important_tokens,
+    _normalize,
+    _popularity_score,
+    _token_match_ratio,
+    _token_overlap,
+    rank_results,
+)
 
 # ---------------------------------------------------------------------------
 # _normalize
@@ -202,7 +202,6 @@ class TestRankResults:
             self._make_game("Witcher Indie", metacritic=55, ratings_count=10),
             self._make_game("The Witcher 3", metacritic=92, ratings_count=50000),
         ]
-        normal = rank_results("witcher", games, prefer_popular=False)
         popular = rank_results("witcher", games, prefer_popular=True)
         assert popular[0]["name"] == "The Witcher 3"
 
@@ -300,3 +299,16 @@ class TestMapGamePayload:
     def test_empty_platforms(self):
         result = RawgClient.map_game_payload(self._payload(platforms=[]))
         assert result["platforms_json"] is None
+
+    def test_playtime_mapped(self):
+        result = RawgClient.map_game_payload(self._payload(playtime=43))
+        assert result["playtime"] == 43
+
+    def test_playtime_zero_becomes_none(self):
+        # RAWG returns 0 for unknown playtime; store it as "not available".
+        result = RawgClient.map_game_payload(self._payload(playtime=0))
+        assert result["playtime"] is None
+
+    def test_playtime_absent_is_none(self):
+        result = RawgClient.map_game_payload(self._payload())
+        assert result["playtime"] is None

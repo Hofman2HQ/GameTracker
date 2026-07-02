@@ -6,13 +6,10 @@ content in rendered responses.  RAWG HTTP calls are mocked where needed.
 """
 
 import json
-from datetime import datetime
-from unittest.mock import AsyncMock, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from app.models import Entry, Game
-
+from app.timeutil import utcnow
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -29,7 +26,7 @@ def _make_game(db, rawg_id=1, name="Test Game", slug="test-game",
         platforms_json=json.dumps(platforms or ["PC"]),
         released=released,
         description=description,
-        last_rawg_fetch=datetime.utcnow(),
+        last_rawg_fetch=utcnow(),
     )
     db.add(game)
     db.flush()
@@ -146,11 +143,11 @@ class TestSearchView:
     def test_search_page_loads(self, client):
         with (
             patch("app.routers.views.RawgClient.list_platforms",
-                  new=AsyncMock(return_value=PLATFORMS_RESPONSE)),
+                  new=MagicMock(return_value=PLATFORMS_RESPONSE)),
             patch("app.routers.views.RawgClient.list_genres",
-                  new=AsyncMock(return_value=GENRES_RESPONSE)),
+                  new=MagicMock(return_value=GENRES_RESPONSE)),
             patch("app.routers.views.RawgClient.list_top_games",
-                  new=AsyncMock(return_value={"results": [], "next": None})),
+                  new=MagicMock(return_value={"results": [], "next": None})),
         ):
             r = client.get("/search")
         assert r.status_code == 200
@@ -168,11 +165,11 @@ class TestSearchView:
         }
         with (
             patch("app.routers.views.RawgClient.list_platforms",
-                  new=AsyncMock(return_value=PLATFORMS_RESPONSE)),
+                  new=MagicMock(return_value=PLATFORMS_RESPONSE)),
             patch("app.routers.views.RawgClient.list_genres",
-                  new=AsyncMock(return_value=GENRES_RESPONSE)),
+                  new=MagicMock(return_value=GENRES_RESPONSE)),
             patch("app.routers.views.RawgClient.search_games",
-                  new=AsyncMock(return_value=search_results)),
+                  new=MagicMock(return_value=search_results)),
         ):
             r = client.get("/search?q=witcher")
         assert r.status_code == 200
@@ -193,7 +190,7 @@ class TestGameDetailView:
     def test_unknown_game_fetches_from_rawg(self, client):
         with patch(
             "app.routers.views.RawgClient.get_game",
-            new=AsyncMock(return_value=RAWG_GAME_RESPONSE),
+            new=MagicMock(return_value=RAWG_GAME_RESPONSE),
         ):
             r = client.get("/game/777")
         assert r.status_code == 200
@@ -208,7 +205,7 @@ class TestAddFromSearch:
     def test_adds_game_and_redirects(self, client):
         with patch(
             "app.routers.views.RawgClient.get_game",
-            new=AsyncMock(return_value=RAWG_GAME_RESPONSE),
+            new=MagicMock(return_value=RAWG_GAME_RESPONSE),
         ):
             r = client.post("/add", data={"rawg_id": 777}, follow_redirects=False)
         assert r.status_code == 303
@@ -218,7 +215,7 @@ class TestAddFromSearch:
         _make_game(db, rawg_id=1, name="Already Added")
         with patch(
             "app.routers.views.RawgClient.get_game",
-            new=AsyncMock(return_value={**RAWG_GAME_RESPONSE, "id": 1}),
+            new=MagicMock(return_value={**RAWG_GAME_RESPONSE, "id": 1}),
         ):
             r = client.post("/add", data={"rawg_id": 1}, follow_redirects=False)
         assert r.status_code == 303
@@ -309,11 +306,11 @@ class TestRecommendationsView:
     def test_page_loads_empty_library(self, client):
         with (
             patch("app.recommendations.RawgClient.list_genres",
-                  new=AsyncMock(return_value=GENRES_RESPONSE)),
+                  new=MagicMock(return_value=GENRES_RESPONSE)),
             patch("app.recommendations.RawgClient.list_platforms",
-                  new=AsyncMock(return_value=PLATFORMS_RESPONSE)),
+                  new=MagicMock(return_value=PLATFORMS_RESPONSE)),
             patch("app.recommendations.RawgClient.list_top_games",
-                  new=AsyncMock(return_value={"results": [], "next": None})),
+                  new=MagicMock(return_value={"results": [], "next": None})),
         ):
             r = client.get("/recommendations")
         assert r.status_code == 200

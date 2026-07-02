@@ -4,14 +4,11 @@ and the /api/recommendations endpoint.
 """
 
 import json
-from datetime import datetime
-from unittest.mock import AsyncMock, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from app.models import Entry, Game
-from app.recommendations import clamp_page, MAX_RECOMMENDATION_PAGE
-
+from app.recommendations import MAX_RECOMMENDATION_PAGE, clamp_page
+from app.timeutil import utcnow
 
 # ---------------------------------------------------------------------------
 # clamp_page
@@ -68,7 +65,7 @@ def _make_game_with_entry(db, rawg_id, name, genres=None, platforms=None,
         name=name,
         genres_json=json.dumps(genres or ["Action"]),
         platforms_json=json.dumps(platforms or ["PC"]),
-        last_rawg_fetch=datetime.utcnow(),
+        last_rawg_fetch=utcnow(),
     )
     db.add(game)
     db.flush()
@@ -86,9 +83,12 @@ def _make_game_with_entry(db, rawg_id, name, genres=None, platforms=None,
 class TestRecommendationsApi:
     def test_empty_library_returns_empty(self, client):
         with (
-            patch("app.recommendations.RawgClient.list_genres", new=AsyncMock(return_value=GENRES_RESPONSE)),
-            patch("app.recommendations.RawgClient.list_platforms", new=AsyncMock(return_value=PLATFORMS_RESPONSE)),
-            patch("app.recommendations.RawgClient.list_top_games", new=AsyncMock(return_value=GAMES_RESPONSE)),
+            patch("app.recommendations.RawgClient.list_genres",
+                  new=MagicMock(return_value=GENRES_RESPONSE)),
+            patch("app.recommendations.RawgClient.list_platforms",
+                  new=MagicMock(return_value=PLATFORMS_RESPONSE)),
+            patch("app.recommendations.RawgClient.list_top_games",
+                  new=MagicMock(return_value=GAMES_RESPONSE)),
         ):
             r = client.get("/api/recommendations")
         assert r.status_code == 200
@@ -100,9 +100,12 @@ class TestRecommendationsApi:
         _make_game_with_entry(db, rawg_id=1, name="My Game")
 
         with (
-            patch("app.recommendations.RawgClient.list_genres", new=AsyncMock(return_value=GENRES_RESPONSE)),
-            patch("app.recommendations.RawgClient.list_platforms", new=AsyncMock(return_value=PLATFORMS_RESPONSE)),
-            patch("app.recommendations.RawgClient.list_top_games", new=AsyncMock(return_value=GAMES_RESPONSE)),
+            patch("app.recommendations.RawgClient.list_genres",
+                  new=MagicMock(return_value=GENRES_RESPONSE)),
+            patch("app.recommendations.RawgClient.list_platforms",
+                  new=MagicMock(return_value=PLATFORMS_RESPONSE)),
+            patch("app.recommendations.RawgClient.list_top_games",
+                  new=MagicMock(return_value=GAMES_RESPONSE)),
         ):
             r = client.get("/api/recommendations")
         assert r.status_code == 200
@@ -119,9 +122,12 @@ class TestRecommendationsApi:
         _make_game_with_entry(db, rawg_id=500, name="Recommended Game")
 
         with (
-            patch("app.recommendations.RawgClient.list_genres", new=AsyncMock(return_value=GENRES_RESPONSE)),
-            patch("app.recommendations.RawgClient.list_platforms", new=AsyncMock(return_value=PLATFORMS_RESPONSE)),
-            patch("app.recommendations.RawgClient.list_top_games", new=AsyncMock(return_value=GAMES_RESPONSE)),
+            patch("app.recommendations.RawgClient.list_genres",
+                  new=MagicMock(return_value=GENRES_RESPONSE)),
+            patch("app.recommendations.RawgClient.list_platforms",
+                  new=MagicMock(return_value=PLATFORMS_RESPONSE)),
+            patch("app.recommendations.RawgClient.list_top_games",
+                  new=MagicMock(return_value=GAMES_RESPONSE)),
         ):
             r = client.get("/api/recommendations")
         assert r.status_code == 200
@@ -130,8 +136,8 @@ class TestRecommendationsApi:
 
     def test_page_size_clamped(self, client):
         with (
-            patch("app.recommendations.RawgClient.list_genres", new=AsyncMock(return_value=[])),
-            patch("app.recommendations.RawgClient.list_platforms", new=AsyncMock(return_value=[])),
+            patch("app.recommendations.RawgClient.list_genres", new=MagicMock(return_value=[])),
+            patch("app.recommendations.RawgClient.list_platforms", new=MagicMock(return_value=[])),
         ):
             r = client.get("/api/recommendations?page_size=100")
         assert r.status_code == 200
@@ -141,9 +147,12 @@ class TestRecommendationsApi:
 
         has_next_response = {**GAMES_RESPONSE, "next": "http://rawg.io/api/games?page=2"}
         with (
-            patch("app.recommendations.RawgClient.list_genres", new=AsyncMock(return_value=GENRES_RESPONSE)),
-            patch("app.recommendations.RawgClient.list_platforms", new=AsyncMock(return_value=PLATFORMS_RESPONSE)),
-            patch("app.recommendations.RawgClient.list_top_games", new=AsyncMock(return_value=has_next_response)),
+            patch("app.recommendations.RawgClient.list_genres",
+                  new=MagicMock(return_value=GENRES_RESPONSE)),
+            patch("app.recommendations.RawgClient.list_platforms",
+                  new=MagicMock(return_value=PLATFORMS_RESPONSE)),
+            patch("app.recommendations.RawgClient.list_top_games",
+                  new=MagicMock(return_value=has_next_response)),
         ):
             r = client.get("/api/recommendations?page=1")
         assert r.status_code == 200

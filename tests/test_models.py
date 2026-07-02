@@ -3,7 +3,7 @@ Tests for SQLAlchemy model properties (Game.genres, Game.platforms).
 """
 
 import json
-import pytest
+
 from app.models import Game
 
 

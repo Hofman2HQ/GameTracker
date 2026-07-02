@@ -25,6 +25,9 @@ Thumbs.db
 # Local data/secrets
 .env
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
 *.sqlite
 *.sqlite3
 
