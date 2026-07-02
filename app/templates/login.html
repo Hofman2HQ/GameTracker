@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="auth-card">
+    <h2>Welcome back</h2>
+    <p class="muted">Log in to your GameTracker.</p>
+    {% if error %}<div class="alert-banner" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" action="/login" class="auth-form">
+      <input type="hidden" name="next" value="{{ next }}" />
+      <label>Email
+        <input type="email" name="email" autocomplete="email" required autofocus />
+      </label>
+      <label>Password
+        <input type="password" name="password" autocomplete="current-password" required />
+      </label>
+      <button type="submit">Log in</button>
+    </form>
+    <p class="auth-alt">No account yet? <a href="/register">Create one</a></p>
+  </div>
+{% endblock %}

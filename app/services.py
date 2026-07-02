@@ -10,23 +10,23 @@ from .rawg import RawgClient
 from .timeutil import utcnow
 
 
-def owned_rawg_ids(db: Session, rawg_ids: Iterable[int]) -> set[int]:
-    """Of the given RAWG ids, return those already in the user's list (have an entry)."""
+def owned_rawg_ids(db: Session, rawg_ids: Iterable[int], user_id: int) -> set[int]:
+    """Of the given RAWG ids, return those already in this user's list."""
     ids = [i for i in rawg_ids if i]
     if not ids:
         return set()
     rows = (
         db.query(Game.rawg_id)
         .join(Entry, Entry.game_id == Game.id)
-        .filter(Game.rawg_id.in_(ids))
+        .filter(Entry.user_id == user_id, Game.rawg_id.in_(ids))
         .all()
     )
     return {row[0] for row in rows}
 
 
-def annotate_owned(db: Session, results: list[dict]) -> list[dict]:
-    """Tag each result dict with ``owned`` = already in the user's list."""
-    owned = owned_rawg_ids(db, [r.get('id') for r in results])
+def annotate_owned(db: Session, results: list[dict], user_id: int) -> list[dict]:
+    """Tag each result dict with ``owned`` = already in this user's list."""
+    owned = owned_rawg_ids(db, [r.get('id') for r in results], user_id)
     for r in results:
         r['owned'] = r.get('id') in owned
     return results

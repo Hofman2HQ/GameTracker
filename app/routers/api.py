@@ -9,9 +9,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from ..auth import require_user_api
 from ..config import STATUSES
 from ..deps import get_db  # noqa: F401  (re-exported for tests/overrides)
-from ..models import APICache, Entry, Game, RecommendationFeedback
+from ..models import APICache, Entry, Game, RecommendationFeedback, User
 from ..rawg import RawgClient, rank_results
 from ..recommendations import build_recommendations
 from ..schemas import EntryCreate, EntryOut, EntryUpdate
@@ -45,11 +46,13 @@ def list_entries(
     limit: int = Query(default=500, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
+    user: User = Depends(require_user_api),
 ):
     q = (
         db.query(Entry)
         .join(Game)
         .options(joinedload(Entry.game))
+        .filter(Entry.user_id == user.id)
         .order_by(Entry.updated_at.desc())
     )
     if status:
@@ -58,13 +61,17 @@ def list_entries(
 
 
 @router.post('/entries', response_model=EntryOut, status_code=201)
-def add_entry(payload: EntryCreate, db: Session = Depends(get_db)):
+def add_entry(payload: EntryCreate, db: Session = Depends(get_db),
+              user: User = Depends(require_user_api)):
     game = ensure_game(db, payload.rawg_id, RawgClient(db=db))
     _validate_entry_dates(payload.start_date, payload.end_date, game.released)
-    existing = db.query(Entry).filter(Entry.game_id == game.id).first()
+    existing = db.query(Entry).filter(
+        Entry.game_id == game.id, Entry.user_id == user.id
+    ).first()
     if existing:
         raise HTTPException(status_code=409, detail='Game already in your list')
     entry = Entry(
+        user_id=user.id,
         game_id=game.id,
         status=payload.status,
         rating=payload.rating,
@@ -86,8 +93,11 @@ def add_entry(payload: EntryCreate, db: Session = Depends(get_db)):
 
 
 @router.patch('/entries/{entry_id}', response_model=EntryOut)
-def update_entry(entry_id: int, payload: EntryUpdate, db: Session = Depends(get_db)):
-    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+def update_entry(entry_id: int, payload: EntryUpdate, db: Session = Depends(get_db),
+                 user: User = Depends(require_user_api)):
+    entry = db.query(Entry).filter(
+        Entry.id == entry_id, Entry.user_id == user.id
+    ).first()
     if not entry:
         raise HTTPException(status_code=404, detail='Entry not found')
     updates = payload.model_dump(exclude_unset=True)
@@ -105,8 +115,11 @@ def update_entry(entry_id: int, payload: EntryUpdate, db: Session = Depends(get_
 
 
 @router.delete('/entries/{entry_id}')
-def delete_entry(entry_id: int, db: Session = Depends(get_db)):
-    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+def delete_entry(entry_id: int, db: Session = Depends(get_db),
+                 user: User = Depends(require_user_api)):
+    entry = db.query(Entry).filter(
+        Entry.id == entry_id, Entry.user_id == user.id
+    ).first()
     if not entry:
         raise HTTPException(status_code=404, detail='Entry not found')
     db.delete(entry)
@@ -124,7 +137,8 @@ def search(
     year: int | None = None,
     month: int | None = None,
     page: int = 1,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user_api),
 ):
     client = RawgClient(db=db)
     page_size = max(1, min(page_size, 40))
@@ -144,7 +158,7 @@ def search(
             ordering='-added',
             dates=dates,
         )
-        annotate_owned(db, res.get('results', []))
+        annotate_owned(db, res.get('results', []), user.id)
         return res
     query = query.strip()
     ordering = '-metacritic' if prefer_popular else None
@@ -158,7 +172,7 @@ def search(
         dates=dates,
     )
     res['results'] = rank_results(query, res.get('results', []), prefer_popular=prefer_popular)
-    annotate_owned(db, res['results'])
+    annotate_owned(db, res['results'], user.id)
     return res
 
 
@@ -179,11 +193,13 @@ def recommendations_api(
     page_size: int = 8,
     platforms: list[str] | None = Query(default=None),
     refresh: bool = False,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user_api),
 ):
     page_size = max(1, min(page_size, 20))
     recommendations, has_more = build_recommendations(
         db,
+        user.id,
         page=page,
         page_size=page_size,
         platform_ids=_parse_platform_ids(platforms),
@@ -207,7 +223,8 @@ DIRECTION_VALUES = {'more': 1, 'less': -1, 'dismiss': 0}
 
 
 @router.post('/recommendations/feedback')
-def set_recommendation_feedback(payload: FeedbackPayload, db: Session = Depends(get_db)):
+def set_recommendation_feedback(payload: FeedbackPayload, db: Session = Depends(get_db),
+                                user: User = Depends(require_user_api)):
     """Record recommendation feedback — clicking the same choice again clears it.
 
     'more'/'less' shift the taste weights; 'dismiss' only hides the game.
@@ -216,7 +233,8 @@ def set_recommendation_feedback(payload: FeedbackPayload, db: Session = Depends(
         raise HTTPException(status_code=422, detail="direction must be 'more', 'less' or 'dismiss'")
     value = DIRECTION_VALUES[payload.direction]
     row = db.query(RecommendationFeedback).filter(
-        RecommendationFeedback.rawg_id == payload.rawg_id
+        RecommendationFeedback.user_id == user.id,
+        RecommendationFeedback.rawg_id == payload.rawg_id,
     ).first()
     if row and row.direction == value:
         db.delete(row)
@@ -226,6 +244,7 @@ def set_recommendation_feedback(payload: FeedbackPayload, db: Session = Depends(
         row.direction = value
     else:
         row = RecommendationFeedback(
+            user_id=user.id,
             rawg_id=payload.rawg_id,
             name=payload.name,
             genres_json=json.dumps(payload.genres) if payload.genres else None,
@@ -238,12 +257,13 @@ def set_recommendation_feedback(payload: FeedbackPayload, db: Session = Depends(
 
 
 @router.get('/export/csv')
-def export_csv(db: Session = Depends(get_db)):
+def export_csv(db: Session = Depends(get_db), user: User = Depends(require_user_api)):
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(['game', 'status', 'rating', 'hours_played', 'favorite',
                      'start_date', 'end_date', 'comment'])
-    for e in db.query(Entry).join(Game).options(joinedload(Entry.game)).all():
+    for e in db.query(Entry).join(Game).options(joinedload(Entry.game)).filter(
+            Entry.user_id == user.id).all():
         writer.writerow([
             e.game.name,
             e.status,
@@ -260,10 +280,11 @@ def export_csv(db: Session = Depends(get_db)):
 
 
 @router.get('/export/json')
-def export_json(db: Session = Depends(get_db)):
+def export_json(db: Session = Depends(get_db), user: User = Depends(require_user_api)):
     """Full backup: every entry with the game snapshot needed to re-import it."""
     items = []
-    for e in db.query(Entry).join(Game).options(joinedload(Entry.game)).all():
+    for e in db.query(Entry).join(Game).options(joinedload(Entry.game)).filter(
+            Entry.user_id == user.id).all():
         items.append({
             'rawg_id': e.game.rawg_id,
             'name': e.game.name,
@@ -314,11 +335,12 @@ class ImportPayload(BaseModel):
 
 
 @router.post('/import/json')
-def import_json(payload: ImportPayload, db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Restore a backup produced by /api/export/json.
+def import_json(payload: ImportPayload, db: Session = Depends(get_db),
+                user: User = Depends(require_user_api)) -> dict[str, Any]:
+    """Restore a backup produced by /api/export/json into the current user's list.
 
     Games are upserted from the snapshot (no RAWG calls needed); entries for
-    games already in the list are skipped, never overwritten.
+    games already in your list are skipped, never overwritten.
     """
     imported = 0
     skipped = 0
@@ -340,11 +362,14 @@ def import_json(payload: ImportPayload, db: Session = Depends(get_db)) -> dict[s
             )
             db.add(game)
             db.flush()
-        existing = db.query(Entry).filter(Entry.game_id == game.id).first()
+        existing = db.query(Entry).filter(
+            Entry.game_id == game.id, Entry.user_id == user.id
+        ).first()
         if existing:
             skipped += 1
             continue
         db.add(Entry(
+            user_id=user.id,
             game_id=game.id,
             status=item.status,
             rating=item.rating,
@@ -360,10 +385,10 @@ def import_json(payload: ImportPayload, db: Session = Depends(get_db)) -> dict[s
 
 
 @router.post('/debug/refresh')
-def debug_refresh(db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Non-destructive: drop the RAWG response cache and mark every stored game
-    stale so the next page view refetches fresh data from the API. Keeps your
-    list, ratings, and feedback intact."""
+def debug_refresh(db: Session = Depends(get_db),
+                  user: User = Depends(require_user_api)) -> dict[str, Any]:
+    """Non-destructive: drop the shared RAWG response cache and mark every stored
+    game stale so the next page view refetches fresh data. Your list is untouched."""
     cache_cleared = db.query(APICache).delete()
     games_marked = db.query(Game).update({Game.last_rawg_fetch: None})
     db.commit()
@@ -371,17 +396,13 @@ def debug_refresh(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.post('/debug/reset')
-def debug_reset(db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Destructive: wipe the entire local database — entries, games,
-    recommendation feedback, and cache. Your library is erased."""
-    entries = db.query(Entry).delete()
-    feedback = db.query(RecommendationFeedback).delete()
-    games = db.query(Game).delete()
-    cache = db.query(APICache).delete()
+def debug_reset(db: Session = Depends(get_db),
+                user: User = Depends(require_user_api)) -> dict[str, Any]:
+    """Destructive: wipe THIS user's library — their entries and recommendation
+    feedback. Shared game data and cache are left intact."""
+    entries = db.query(Entry).filter(Entry.user_id == user.id).delete()
+    feedback = db.query(RecommendationFeedback).filter(
+        RecommendationFeedback.user_id == user.id
+    ).delete()
     db.commit()
-    return {
-        'entries_deleted': entries,
-        'games_deleted': games,
-        'feedback_deleted': feedback,
-        'cache_deleted': cache,
-    }
+    return {'entries_deleted': entries, 'feedback_deleted': feedback}

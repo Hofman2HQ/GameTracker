@@ -2089,3 +2089,114 @@ button.suggestion:hover::before {
 .button.in-list:hover {
   background: color-mix(in srgb, var(--status-completed) 26%, var(--surface));
 }
+
+/* Auth pages */
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  margin: 48px auto;
+  max-width: 420px;
+  padding: 32px;
+}
+
+.auth-card h2 {
+  margin-bottom: 4px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 6px;
+}
+
+.auth-form input {
+  font-size: 15px;
+  padding: 10px 12px;
+}
+
+.auth-form button {
+  margin-top: 4px;
+}
+
+.field-hint {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.auth-alt {
+  margin-top: 18px;
+  text-align: center;
+}
+
+/* Header user menu */
+.user-menu {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.user-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  max-width: 160px;
+  overflow: hidden;
+  padding: 7px 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.logout-form {
+  margin: 0;
+}
+
+.logout-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  height: 38px;
+  padding: 0;
+  transition: all var(--transition-base);
+  width: 38px;
+}
+
+.logout-btn:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-contrast);
+}
+
+.checkbox-row {
+  align-items: center;
+  display: flex;
+  flex-direction: row !important;
+  gap: 10px;
+}
+
+.checkbox-row input {
+  accent-color: var(--accent);
+  height: 18px;
+  width: 18px;
+}

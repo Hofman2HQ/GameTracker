@@ -69,7 +69,10 @@ def _make_game_with_entry(db, rawg_id, name, genres=None, platforms=None,
     )
     db.add(game)
     db.flush()
+    from app.models import User
+    uid = db.query(User).filter(User.email == "tester@example.com").first().id
     entry = Entry(
+        user_id=uid,
         game_id=game.id,
         status=status,
         rating=rating,

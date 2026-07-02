@@ -15,6 +15,15 @@ class Settings(BaseSettings):
     http_timeout_seconds: float = 10.0
     http_retries: int = 2
 
+    # Signs the session cookie. Set a stable random value in production
+    # (e.g. `python -c "import secrets; print(secrets.token_hex(32))"`);
+    # the dev default keeps you logged in across restarts locally.
+    secret_key: str = 'dev-insecure-change-me-in-production'
+    session_cookie: str = 'gt_session'
+    bcrypt_rounds: int = 12  # password hashing cost; tests lower it for speed
+    # Steam Web API key (optional) enables the Steam library importer.
+    steam_api_key: str = ''
+
     # RAWG quota conservation: game facts rarely change, so cache aggressively.
     game_refresh_days: int = 30          # re-fetch stored game details at most this often
     cache_ttl_search: int = 86400        # search results (seconds)

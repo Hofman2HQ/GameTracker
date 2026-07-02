@@ -65,6 +65,7 @@ def _is_recent(released: str | None) -> bool:
 
 def build_recommendations(
     db: Session,
+    user_id: int,
     page: int = 1,
     page_size: int = 8,
     platform_ids: list[int] | None = None,
@@ -75,12 +76,14 @@ def build_recommendations(
     # Explicit platform filter (checkboxes) overrides the inferred platform,
     # and uses RAWG's comma-separated parent_platforms for "X or Y" semantics.
     platform_filter = ','.join(str(p) for p in platform_ids) if platform_ids else None
-    entries = db.query(Entry).join(Game).all()
+    entries = db.query(Entry).join(Game).filter(Entry.user_id == user_id).all()
     owned_ids = {entry.game.rawg_id for entry in entries if entry.game}
     if not entries:
         return [], False
 
-    feedback_rows = db.query(RecommendationFeedback).all()
+    feedback_rows = db.query(RecommendationFeedback).filter(
+        RecommendationFeedback.user_id == user_id
+    ).all()
     feedback_by_id = {f.rawg_id: f.direction for f in feedback_rows}
     # direction -1 = "less like this", 0 = dismissed; neither may reappear.
     hidden_ids = {f.rawg_id for f in feedback_rows if f.direction <= 0}
