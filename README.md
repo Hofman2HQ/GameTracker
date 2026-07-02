@@ -58,7 +58,9 @@ Set via environment variables or `.env` (see `.env.example`):
 | Variable | Default | Purpose |
 |---|---|---|
 | `RAWG_API_KEY` | — | **Required.** RAWG API key |
+| `SECRET_KEY` | dev default | **Set in production.** Signs session cookies (`python -c "import secrets;print(secrets.token_hex(32))"`) |
 | `DATABASE_URL` | `sqlite:///<project>/gametracker.db` | Any SQLAlchemy URL |
+| `BCRYPT_ROUNDS` | `12` | Password hashing cost |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 | `HTTP_TIMEOUT_SECONDS` | `10` | RAWG request timeout |
 | `HTTP_RETRIES` | `2` | RAWG retry attempts (backoff-spaced) |
@@ -82,7 +84,8 @@ CI runs lint + tests on Python 3.11–3.13 and builds the Docker image on every 
 
 ## Architecture notes
 
-- **Single-user by design.** No auth layer; put it behind a reverse proxy with auth (or a VPN/Tailscale) if you expose it publicly.
-- **SQLite in WAL mode** with foreign keys enforced; entry-per-game uniqueness is guarded by a DB constraint, not just app logic.
+- **Multi-user.** Email + password accounts with signed session cookies (bcrypt-hashed passwords). All library data is scoped per user; app pages require login, the JSON API returns 401 when unauthenticated. Public profiles are opt-in at `/u/{slug}`. Set a stable `SECRET_KEY` before deploying.
+- **SQLite in WAL mode** with foreign keys enforced; one-entry-per-game is enforced **per user** by a DB unique constraint, not just app logic. For real concurrent load, point `DATABASE_URL` at Postgres.
+- **RAWG access** goes through a shared pooled HTTP client with retries; all failures map to typed errors handled centrally (JSON for `/api/*`, friendly error page for views).
 - **RAWG access** goes through a shared pooled HTTP client with retries; all failures map to typed errors handled centrally (JSON for `/api/*`, friendly error page for views).
 - **Backups**: `GET /api/export/json` produces a self-contained snapshot (no RAWG calls needed to restore). Import skips entries that already exist — it never overwrites your data.

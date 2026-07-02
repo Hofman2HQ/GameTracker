@@ -8,15 +8,18 @@ if __package__ is None or __package__ == '':
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from starlette.middleware.sessions import SessionMiddleware
 
 from app import database, rawg
+from app.auth import NotAuthenticated
 from app.config import PROJECT_ROOT, settings
 from app.database import SessionLocal, init_db
+from app.models import User
 from app.rawg import RawgAuthError, RawgError, RawgNotFoundError
-from app.routers import api, views
+from app.routers import api, auth, views
 from app.templating import templates
 
 logging.basicConfig(
@@ -54,10 +57,35 @@ app = FastAPI(
     openapi_url='/api/openapi.json',
 )
 
+if settings.secret_key == 'dev-insecure-change-me-in-production':
+    logger.warning('SECRET_KEY is the insecure dev default — set a stable random '
+                   'SECRET_KEY in .env before deploying (sessions are forgeable otherwise).')
+
 app.mount('/static', StaticFiles(directory=str(PROJECT_ROOT / 'app' / 'static')), name='static')
 
+app.include_router(auth.router, tags=['auth'])
 app.include_router(api.router, prefix='/api', tags=['api'])
 app.include_router(views.router, tags=['views'])
+
+
+@app.middleware('http')
+async def load_user(request: Request, call_next):
+    """Attach the logged-in user (or None) to request.state for templates/nav."""
+    request.state.user = None
+    if not request.url.path.startswith('/static'):
+        user_id = request.session.get('user_id')
+        if user_id:
+            db = SessionLocal()
+            try:
+                request.state.user = db.query(User).filter(User.id == user_id).first()
+            finally:
+                db.close()
+    return await call_next(request)
+
+
+@app.exception_handler(NotAuthenticated)
+async def not_authenticated_handler(request: Request, _exc: NotAuthenticated):
+    return RedirectResponse(url=f'/login?next={request.url.path}', status_code=303)
 
 
 CSP = (
@@ -78,6 +106,13 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     response.headers.setdefault('Content-Security-Policy', CSP)
     return response
+
+
+# Added last so it is the OUTERMOST middleware: request.session must be
+# populated before load_user (and the routes) read it.
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key,
+                   session_cookie=settings.session_cookie, https_only=False,
+                   same_site='lax')
 
 
 @app.exception_handler(RawgError)

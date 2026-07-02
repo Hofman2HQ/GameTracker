@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="page-intro">
+    <h2>Settings</h2>
+    <p>Manage your account and public profile.</p>
+  </div>
+  {% if saved %}<div class="alert-banner" role="status" style="border-color: var(--status-completed);">Saved.</div>{% endif %}
+
+  <form method="post" action="/settings" class="controls" style="flex-direction: column; align-items: stretch; max-width: 560px;">
+    <label>Display name
+      <input type="text" name="display_name" value="{{ account.display_name }}" />
+    </label>
+    <label class="checkbox-row">
+      <input type="checkbox" name="is_public" value="true" {% if account.is_public %}checked{% endif %} />
+      <span>Make my list public at a shareable link</span>
+    </label>
+    {% if account.is_public %}
+      <p class="muted">Your public profile: <a href="/u/{{ account.profile_slug }}">/u/{{ account.profile_slug }}</a></p>
+    {% endif %}
+    <div class="actions">
+      <button type="submit">Save changes</button>
+    </div>
+  </form>
+
+  <p class="muted" style="margin-top: 24px;">Signed in as <strong>{{ account.email }}</strong>.</p>
+{% endblock %}

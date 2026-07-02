@@ -83,6 +83,7 @@ def _summarize(g: dict[str, Any]) -> dict[str, Any]:
 
 def build_upcoming(
     db: Session,
+    user_id: int,
     platform_ids: list[int] | None = None,
     force_refresh: bool = False,
 ) -> dict[str, Any]:
@@ -133,7 +134,7 @@ def build_upcoming(
         }
 
     # Flag games already in the user's list so the card shows "In your list".
-    owned = owned_rawg_ids(db, list(candidates.keys()))
+    owned = owned_rawg_ids(db, list(candidates.keys()), user_id)
 
     years: dict[int, dict[str, Any]] = {}
     tba: list[dict[str, Any]] = []

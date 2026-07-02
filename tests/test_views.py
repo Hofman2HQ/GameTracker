@@ -8,8 +8,12 @@ content in rendered responses.  RAWG HTTP calls are mocked where needed.
 import json
 from unittest.mock import MagicMock, patch
 
-from app.models import Entry, Game
+from app.models import Entry, Game, User
 from app.timeutil import utcnow
+
+
+def _uid(db):
+    return db.query(User).filter(User.email == "tester@example.com").first().id
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -30,7 +34,7 @@ def _make_game(db, rawg_id=1, name="Test Game", slug="test-game",
     )
     db.add(game)
     db.flush()
-    entry = Entry(game_id=game.id, status="PLAN")
+    entry = Entry(user_id=_uid(db), game_id=game.id, status="PLAN")
     db.add(entry)
     db.commit()
     db.refresh(entry)

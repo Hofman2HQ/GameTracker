@@ -8,9 +8,10 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import case
 from sqlalchemy.orm import Session, joinedload
 
+from ..auth import require_user_view
 from ..config import STATUSES
 from ..deps import get_db  # noqa: F401  (re-exported for tests/overrides)
-from ..models import Entry, Game
+from ..models import Entry, Game, User
 from ..rawg import RawgClient, RawgError, rank_results
 from ..recommendations import build_recommendations
 from ..services import annotate_owned, ensure_game
@@ -58,9 +59,10 @@ def view_list(
     status: str | None = None,
     sort: str | None = None,
     hours: str | None = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user_view),
 ):
-    q = db.query(Entry).join(Game).options(joinedload(Entry.game))
+    q = db.query(Entry).join(Game).options(joinedload(Entry.game)).filter(Entry.user_id == user.id)
     if status:
         q = q.filter(Entry.status == status)
     if hours == '1-6':
@@ -100,7 +102,8 @@ def search_page(
     month: int | None = None,
     upcoming: bool = False,
     page: int = 1,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user_view),
 ):
     client = RawgClient(db=db)
     platform_id = int(platform) if platform and platform.isdigit() else None
@@ -125,6 +128,7 @@ def search_page(
             platforms = sorted(client.list_platforms(), key=lambda item: item['name'])
             upcoming_groups = build_upcoming(
                 db,
+                user.id,
                 platform_ids=[platform_id] if platform_id else None,
             )
         except RawgError as exc:
@@ -194,7 +198,7 @@ def search_page(
                 if p.get('platform', {}).get('name')
             ],
         })
-    annotate_owned(db, results)
+    annotate_owned(db, results, user.id)
     has_more = bool(data.get('next'))
     params = {}
     if query:
@@ -235,11 +239,14 @@ def search_page(
 
 
 @router.post('/add')
-def add_from_search(rawg_id: int = Form(...), db: Session = Depends(get_db)):
+def add_from_search(rawg_id: int = Form(...), db: Session = Depends(get_db),
+                    user: User = Depends(require_user_view)):
     game = ensure_game(db, rawg_id, RawgClient(db=db))
-    entry = db.query(Entry).filter(Entry.game_id == game.id).first()
+    entry = db.query(Entry).filter(
+        Entry.game_id == game.id, Entry.user_id == user.id
+    ).first()
     if not entry:
-        entry = Entry(game_id=game.id, status='PLAN')
+        entry = Entry(user_id=user.id, game_id=game.id, status='PLAN')
         db.add(entry)
     db.commit()
     return RedirectResponse(url=f'/game/{rawg_id}', status_code=303)
@@ -250,7 +257,8 @@ def game_detail(
     request: Request,
     rawg_id: int,
     saved: bool = False,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user_view),
 ):
     client = RawgClient(db=db)
     game = ensure_game(db, rawg_id, client)
@@ -266,8 +274,10 @@ def game_detail(
     db.commit()
     db.refresh(game)
 
-    # Entry (may be None if not added)
-    entry = db.query(Entry).filter(Entry.game_id == game.id).first()
+    # This user's entry for the game (may be None if not added)
+    entry = db.query(Entry).filter(
+        Entry.game_id == game.id, Entry.user_id == user.id
+    ).first()
     rel_date = parse_release_date(game.released)
     is_unreleased = bool(rel_date and rel_date > utcnow().date())
 
@@ -331,8 +341,11 @@ def update_entry_view(
     start_date: str | None = Form(None),
     end_date: str | None = Form(None),
     db: Session = Depends(get_db),
+    user: User = Depends(require_user_view),
 ):
-    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+    entry = db.query(Entry).filter(
+        Entry.id == entry_id, Entry.user_id == user.id
+    ).first()
     if not entry:
         return RedirectResponse(url='/list', status_code=303)
 
@@ -368,8 +381,11 @@ def update_entry_view(
 
 
 @router.post('/entries/{entry_id}/delete')
-def delete_entry_view(entry_id: int, db: Session = Depends(get_db)):
-    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+def delete_entry_view(entry_id: int, db: Session = Depends(get_db),
+                      user: User = Depends(require_user_view)):
+    entry = db.query(Entry).filter(
+        Entry.id == entry_id, Entry.user_id == user.id
+    ).first()
     if entry:
         rawg_id = entry.game.rawg_id
         db.delete(entry)
@@ -379,7 +395,8 @@ def delete_entry_view(entry_id: int, db: Session = Depends(get_db)):
 
 
 @router.get('/stats')
-def stats_page(request: Request, db: Session = Depends(get_db)):
+def stats_page(request: Request, db: Session = Depends(get_db),
+               user: User = Depends(require_user_view)):
     totals = {s: 0 for s in STATUSES}
     ratings_dist = {str(i): 0 for i in range(1, 11)}
     ratings = []
@@ -389,7 +406,7 @@ def stats_page(request: Request, db: Session = Depends(get_db)):
     platforms_count = {}
     longest_games = []
 
-    for e in db.query(Entry).options(joinedload(Entry.game)).all():
+    for e in db.query(Entry).options(joinedload(Entry.game)).filter(Entry.user_id == user.id).all():
         totals[e.status] = totals.get(e.status, 0) + 1
         if e.rating is not None:
             ratings.append(e.rating)
@@ -446,7 +463,8 @@ def recommendations_page(
     page: int = 1,
     platforms: list[str] | None = Query(default=None),
     refresh: bool = False,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user_view),
 ):
     page = clamp_page(page)
     client = RawgClient(db=db)
@@ -458,6 +476,7 @@ def recommendations_page(
         platform_choices = sorted(client.list_platforms(), key=lambda item: item['name'])
         recommendations, has_more = build_recommendations(
             db,
+            user.id,
             page=page,
             page_size=RECOMMENDATIONS_PAGE_SIZE,
             platform_ids=platform_ids,
@@ -492,6 +511,56 @@ def upcoming_redirect(platform: str | None = None):
     return RedirectResponse(url=target, status_code=307)
 
 
+@router.get('/settings')
+def settings_page(request: Request, saved: bool = False,
+                  user: User = Depends(require_user_view)):
+    return templates.TemplateResponse(request, 'settings.html', {
+        'account': user, 'saved': saved,
+    })
+
+
+@router.post('/settings')
+def settings_save(
+    request: Request,
+    display_name: str = Form(''),
+    is_public: bool = Form(False),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user_view),
+):
+    user.display_name = display_name.strip() or user.display_name
+    user.is_public = bool(is_public)
+    db.add(user)
+    db.commit()
+    return RedirectResponse(url='/settings?saved=1', status_code=303)
+
+
 @router.get('/debug')
-def debug_page(request: Request):
+def debug_page(request: Request, user: User = Depends(require_user_view)):
     return templates.TemplateResponse(request, 'debug.html', {})
+
+
+@router.get('/u/{slug}')
+def public_profile(request: Request, slug: str, db: Session = Depends(get_db)):
+    """Public read-only profile — visible only if the owner enabled sharing."""
+    profile = db.query(User).filter(User.profile_slug == slug, User.is_public.is_(True)).first()
+    if not profile:
+        return templates.TemplateResponse(
+            request, 'error.html',
+            {'status_code': 404, 'message': 'This profile does not exist or is private.'},
+            status_code=404,
+        )
+    entries = (
+        db.query(Entry).join(Game).options(joinedload(Entry.game))
+        .filter(Entry.user_id == profile.id)
+        .order_by(Entry.updated_at.desc())
+        .all()
+    )
+    totals = {s: 0 for s in STATUSES}
+    for e in entries:
+        totals[e.status] = totals.get(e.status, 0) + 1
+    return templates.TemplateResponse(request, 'profile.html', {
+        'profile': profile,
+        'entries': entries,
+        'totals': totals,
+        'total': len(entries),
+    })

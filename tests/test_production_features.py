@@ -6,9 +6,13 @@ input validation, graceful degradation when RAWG is down, and security headers.
 import json
 from unittest.mock import MagicMock, patch
 
-from app.models import Entry, Game
+from app.models import Entry, Game, User
 from app.rawg import RawgUnavailableError
 from app.timeutil import utcnow
+
+
+def _uid(db):
+    return db.query(User).filter(User.email == "tester@example.com").first().id
 
 
 def _make_game(db, rawg_id=1, name="Test Game", slug="test-game",
@@ -23,7 +27,7 @@ def _make_game(db, rawg_id=1, name="Test Game", slug="test-game",
     )
     db.add(game)
     db.flush()
-    entry = Entry(game_id=game.id, status="PLAN")
+    entry = Entry(user_id=_uid(db), game_id=game.id, status="PLAN")
     db.add(entry)
     db.commit()
     db.refresh(entry)
@@ -182,7 +186,7 @@ class TestEntryDateValidation:
         )
         db.add(game)
         db.flush()
-        entry = Entry(game_id=game.id, status="PLAYING")
+        entry = Entry(user_id=_uid(db), game_id=game.id, status="PLAYING")
         db.add(entry)
         db.commit()
         db.refresh(entry)
@@ -305,7 +309,7 @@ class TestRecommendationFeedback:
         )
         db.add(game)
         db.flush()
-        db.add(Entry(game_id=game.id, status="COMPLETED", rating=9, favorite=True))
+        db.add(Entry(user_id=_uid(db), game_id=game.id, status="COMPLETED", rating=9, favorite=True))
         db.commit()
 
     def _games_response(self, ids_and_genres):
@@ -421,7 +425,7 @@ class TestSmarterRecommendations:
         )
         db.add(game)
         db.flush()
-        db.add(Entry(game_id=game.id, status=status, rating=rating, favorite=favorite))
+        db.add(Entry(user_id=_uid(db), game_id=game.id, status=status, rating=rating, favorite=favorite))
         db.commit()
 
     def test_entry_affinity_signs(self):
@@ -507,7 +511,7 @@ class TestPlaytimeOnGamePage:
         )
         db.add(game)
         db.flush()
-        db.add(Entry(game_id=game.id, status="PLAYING"))
+        db.add(Entry(user_id=_uid(db), game_id=game.id, status="PLAYING"))
         db.commit()
         return game
 
@@ -552,7 +556,7 @@ class TestRecommendationReasonGenreConsistency:
                  platforms_json='["PC"]', last_rawg_fetch=utcnow())
         db.add(g)
         db.flush()
-        db.add(Entry(game_id=g.id, status="COMPLETED", rating=10, favorite=True))
+        db.add(Entry(user_id=_uid(db), game_id=g.id, status="COMPLETED", rating=10, favorite=True))
         db.commit()
 
         # Candidate lists Indie/Adventure FIRST and the matched RPG/Action last —
@@ -647,7 +651,7 @@ class TestPlatformRecommendations:
                  platforms_json='["PC"]', last_rawg_fetch=utcnow())
         db.add(g)
         db.flush()
-        db.add(Entry(game_id=g.id, status="COMPLETED", rating=9))
+        db.add(Entry(user_id=_uid(db), game_id=g.id, status="COMPLETED", rating=9))
         db.commit()
 
     def test_selected_platforms_passed_as_parent_platforms(self, client, db):
@@ -694,7 +698,7 @@ class TestRecommendationRefresh:
                  platforms_json='["PC"]', last_rawg_fetch=utcnow())
         db.add(g)
         db.flush()
-        db.add(Entry(game_id=g.id, status="COMPLETED", rating=9))
+        db.add(Entry(user_id=_uid(db), game_id=g.id, status="COMPLETED", rating=9))
         db.commit()
         top = MagicMock(return_value={"results": [], "next": None})
         with (
@@ -728,18 +732,19 @@ class TestDebugTools:
         assert db.query(Game).first().last_rawg_fetch is None
         assert db.query(APICache).count() == 0
 
-    def test_reset_wipes_everything(self, client, db):
+    def test_reset_wipes_this_users_library(self, client, db):
         g = Game(rawg_id=1, slug="g", name="G", last_rawg_fetch=utcnow(),
                  genres_json="[]", platforms_json="[]")
         db.add(g)
         db.flush()
-        db.add(Entry(game_id=g.id, status="PLAN"))
+        db.add(Entry(user_id=_uid(db), game_id=g.id, status="PLAN"))
         db.commit()
         r = client.post("/api/debug/reset")
         assert r.status_code == 200
-        assert r.json()["games_deleted"] == 1
-        assert db.query(Game).count() == 0
+        assert r.json()["entries_deleted"] == 1
         assert db.query(Entry).count() == 0
+        # Shared game catalog is preserved, not wiped.
+        assert db.query(Game).count() == 1
 
     def test_debug_page_renders(self, client):
         r = client.get("/debug")
@@ -839,7 +844,7 @@ class TestPlatformDisplayOrder:
                  platforms_json='["PC"]', last_rawg_fetch=utcnow())
         db.add(g)
         db.flush()
-        db.add(Entry(game_id=g.id, status="COMPLETED", rating=9))
+        db.add(Entry(user_id=_uid(db), game_id=g.id, status="COMPLETED", rating=9))
         db.commit()
         # Candidate lists PC/PS/Xbox first and Nintendo Switch last.
         games = {"results": [{
@@ -943,7 +948,7 @@ class TestRecommendationsToolbar:
                  platforms_json='["PC"]', last_rawg_fetch=utcnow())
         db.add(g)
         db.flush()
-        db.add(Entry(game_id=g.id, status="COMPLETED", rating=9))
+        db.add(Entry(user_id=_uid(db), game_id=g.id, status="COMPLETED", rating=9))
         db.commit()
 
     def test_platform_pills_and_icon_refresh_render(self, client, db):
@@ -996,7 +1001,7 @@ class TestOwnedGamesInLists:
                  genres_json="[]", platforms_json="[]", last_rawg_fetch=utcnow())
         db.add(g)
         db.flush()
-        db.add(Entry(game_id=g.id, status="PLAYING"))
+        db.add(Entry(user_id=_uid(db), game_id=g.id, status="PLAYING"))
         db.commit()
 
     def test_owned_helper(self, db):
@@ -1006,7 +1011,7 @@ class TestOwnedGamesInLists:
         db.add(Game(rawg_id=43, slug="g43", name="Cached", genres_json="[]",
                     platforms_json="[]", last_rawg_fetch=utcnow()))
         db.commit()
-        assert owned_rawg_ids(db, [42, 43, 99]) == {42}
+        assert owned_rawg_ids(db, [42, 43, 99], _uid(db)) == {42}
 
     def test_api_search_marks_owned(self, client, db):
         self._own(db, 500)

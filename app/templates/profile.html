@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="page-intro">
+    <h2>{{ profile.display_name }}'s Games</h2>
+    <p class="muted">{{ total }} game{{ '' if total == 1 else 's' }} tracked ·
+      {% for s in ['PLAYING', 'COMPLETED', 'PLAN', 'DROPPED'] %}{% if totals.get(s) %}{{ totals[s] }} {{ s|lower }}{{ ' · ' if not loop.last }}{% endif %}{% endfor %}
+    </p>
+  </div>
+
+  {% if not entries %}
+    <div class="empty-state"><h3>Nothing here yet</h3><p>This list is empty.</p></div>
+  {% else %}
+    <div class="grid">
+      {% for e in entries %}
+        <div class="card">
+          {% if e.game.background_image %}
+            <a href="/game/{{ e.game.rawg_id }}"><img class="thumb" src="{{ e.game.background_image }}" alt="{{ e.game.name }}" loading="lazy" /></a>
+          {% else %}
+            <div class="thumb-placeholder">{{ e.game.name }}</div>
+          {% endif %}
+          <div class="card-body">
+            <h3><a href="/game/{{ e.game.rawg_id }}">{{ e.game.name }}</a></h3>
+            <div class="meta-line">
+              <span class="badge status-{{ e.status|lower }}">{{ e.status }}</span>
+              {% if e.rating %}<span class="badge badge-strong">★ {{ e.rating }}/10</span>{% endif %}
+              {% if e.favorite %}<span class="badge">♥ Favorite</span>{% endif %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endblock %}
