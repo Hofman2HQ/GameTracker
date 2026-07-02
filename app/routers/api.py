@@ -1,24 +1,37 @@
+import csv
+import io
 import json
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from typing import Any
 
-from ..database import SessionLocal
-from ..models import Game, Entry
-from ..schemas import EntryCreate, EntryUpdate, EntryOut, GameOut
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, joinedload
+
+from ..config import STATUSES
+from ..deps import get_db  # noqa: F401  (re-exported for tests/overrides)
+from ..models import APICache, Entry, Game, RecommendationFeedback
 from ..rawg import RawgClient, rank_results
 from ..recommendations import build_recommendations
-from ..config import STATUSES
+from ..schemas import EntryCreate, EntryOut, EntryUpdate
+from ..services import annotate_owned, ensure_game
+from ..upcoming import month_year_to_dates
 
 router = APIRouter()
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+def _validate_entry_dates(start_date: str | None, end_date: str | None, released: str | None) -> None:
+    """Dates are ISO strings (schema-validated), so string comparison is chronological."""
+    if released:
+        for label, value in (('start_date', start_date), ('end_date', end_date)):
+            if value and value < released:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{label} {value} is before the game's release date ({released})",
+                )
+    if start_date and end_date and end_date < start_date:
+        raise HTTPException(status_code=422, detail='end_date is before start_date')
 
 
 @router.get('/statuses')
@@ -27,35 +40,27 @@ def list_statuses():
 
 
 @router.get('/entries', response_model=list[EntryOut])
-def list_entries(status: Optional[str] = None, db: Session = Depends(get_db)):
-    q = db.query(Entry).join(Game).order_by(Entry.updated_at.desc())
+def list_entries(
+    status: str | None = None,
+    limit: int = Query(default=500, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    q = (
+        db.query(Entry)
+        .join(Game)
+        .options(joinedload(Entry.game))
+        .order_by(Entry.updated_at.desc())
+    )
     if status:
         q = q.filter(Entry.status == status)
-    entries = q.all()
-    return entries
+    return q.offset(offset).limit(limit).all()
 
 
-@router.post('/entries', response_model=EntryOut)
-async def add_entry(payload: EntryCreate, db: Session = Depends(get_db)):
-    from datetime import datetime
-    from ..cache import is_game_data_fresh
-    # Ensure game exists in DB
-    game = db.query(Game).filter(Game.rawg_id == payload.rawg_id).first()
-    if not game or not is_game_data_fresh(game):
-        client = RawgClient(db=db)
-        data = await client.get_game(payload.rawg_id)
-        mapped = client.map_game_payload(data)
-        if game:
-            # Update existing game
-            for key, value in mapped.items():
-                setattr(game, key, value)
-            game.last_rawg_fetch = datetime.utcnow()
-        else:
-            # Create new game
-            game = Game(**mapped, last_rawg_fetch=datetime.utcnow())
-            db.add(game)
-        db.flush()
-    # Check existing entry for this game
+@router.post('/entries', response_model=EntryOut, status_code=201)
+def add_entry(payload: EntryCreate, db: Session = Depends(get_db)):
+    game = ensure_game(db, payload.rawg_id, RawgClient(db=db))
+    _validate_entry_dates(payload.start_date, payload.end_date, game.released)
     existing = db.query(Entry).filter(Entry.game_id == game.id).first()
     if existing:
         raise HTTPException(status_code=409, detail='Game already in your list')
@@ -70,7 +75,12 @@ async def add_entry(payload: EntryCreate, db: Session = Depends(get_db)):
         end_date=payload.end_date,
     )
     db.add(entry)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # A concurrent request added the same game between our check and commit.
+        db.rollback()
+        raise HTTPException(status_code=409, detail='Game already in your list') from None
     db.refresh(entry)
     return entry
 
@@ -80,7 +90,13 @@ def update_entry(entry_id: int, payload: EntryUpdate, db: Session = Depends(get_
     entry = db.query(Entry).filter(Entry.id == entry_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail='Entry not found')
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    _validate_entry_dates(
+        updates.get('start_date', entry.start_date),
+        updates.get('end_date', entry.end_date),
+        entry.game.released,
+    )
+    for field, value in updates.items():
         setattr(entry, field, value)
     db.add(entry)
     db.commit()
@@ -99,12 +115,14 @@ def delete_entry(entry_id: int, db: Session = Depends(get_db)):
 
 
 @router.get('/search')
-async def search(
-    query: Optional[str] = None,
+def search(
+    query: str | None = None,
     page_size: int = 20,
     mode: str = 'search',
-    platform: Optional[str] = None,
-    genre: Optional[str] = None,
+    platform: str | None = None,
+    genre: str | None = None,
+    year: int | None = None,
+    month: int | None = None,
     page: int = 1,
     db: Session = Depends(get_db)
 ):
@@ -112,56 +130,120 @@ async def search(
     page_size = max(1, min(page_size, 40))
     page = max(1, min(page, 50))
     platform_id = int(platform) if platform and platform.isdigit() else None
+    dates = month_year_to_dates(year, month)
     prefer_popular = mode == 'autocomplete'
     if not query or not query.strip():
         if prefer_popular:
             return {'results': []}
-        return await client.list_top_games(
+        # Browse view: most-added (popular) first, not Metacritic.
+        res = client.list_top_games(
             page_size=page_size,
             parent_platforms=platform_id,
             genres=genre,
-            page=page
+            page=page,
+            ordering='-added',
+            dates=dates,
         )
+        annotate_owned(db, res.get('results', []))
+        return res
     query = query.strip()
     ordering = '-metacritic' if prefer_popular else None
-    res = await client.search_games(
+    res = client.search_games(
         query,
         page_size=page_size,
         parent_platforms=platform_id,
         genres=genre,
         ordering=ordering,
-        page=page
+        page=page,
+        dates=dates,
     )
     res['results'] = rank_results(query, res.get('results', []), prefer_popular=prefer_popular)
+    annotate_owned(db, res['results'])
     return res
 
 
+def _parse_platform_ids(platforms: list[str] | None) -> list[int]:
+    """Accept repeated ?platforms=4&platforms=1 and comma form ?platforms=4,1."""
+    ids: list[int] = []
+    for chunk in platforms or []:
+        for part in str(chunk).split(','):
+            part = part.strip()
+            if part.isdigit() and int(part) not in ids:
+                ids.append(int(part))
+    return ids
+
+
 @router.get('/recommendations')
-async def recommendations_api(
+def recommendations_api(
     page: int = 1,
     page_size: int = 8,
+    platforms: list[str] | None = Query(default=None),
+    refresh: bool = False,
     db: Session = Depends(get_db)
 ):
     page_size = max(1, min(page_size, 20))
-    recommendations, has_more = await build_recommendations(
+    recommendations, has_more = build_recommendations(
         db,
         page=page,
-        page_size=page_size
+        page_size=page_size,
+        platform_ids=_parse_platform_ids(platforms),
+        force_refresh=refresh,
     )
     return {
         'results': recommendations,
         'next_page': page + 1 if has_more else None
     }
-from fastapi.responses import StreamingResponse
-import io
-import csv
+
+
+class FeedbackPayload(BaseModel):
+    rawg_id: int
+    name: str = ''
+    genres: list[str] = []
+    platforms: list[str] = []
+    direction: str  # 'more' | 'less' | 'dismiss'
+
+
+DIRECTION_VALUES = {'more': 1, 'less': -1, 'dismiss': 0}
+
+
+@router.post('/recommendations/feedback')
+def set_recommendation_feedback(payload: FeedbackPayload, db: Session = Depends(get_db)):
+    """Record recommendation feedback — clicking the same choice again clears it.
+
+    'more'/'less' shift the taste weights; 'dismiss' only hides the game.
+    """
+    if payload.direction not in DIRECTION_VALUES:
+        raise HTTPException(status_code=422, detail="direction must be 'more', 'less' or 'dismiss'")
+    value = DIRECTION_VALUES[payload.direction]
+    row = db.query(RecommendationFeedback).filter(
+        RecommendationFeedback.rawg_id == payload.rawg_id
+    ).first()
+    if row and row.direction == value:
+        db.delete(row)
+        db.commit()
+        return {'rawg_id': payload.rawg_id, 'direction': None}
+    if row:
+        row.direction = value
+    else:
+        row = RecommendationFeedback(
+            rawg_id=payload.rawg_id,
+            name=payload.name,
+            genres_json=json.dumps(payload.genres) if payload.genres else None,
+            platforms_json=json.dumps(payload.platforms) if payload.platforms else None,
+            direction=value,
+        )
+        db.add(row)
+    db.commit()
+    return {'rawg_id': payload.rawg_id, 'direction': payload.direction}
+
 
 @router.get('/export/csv')
 def export_csv(db: Session = Depends(get_db)):
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['game', 'status', 'rating', 'hours_played', 'favorite', 'start_date', 'end_date', 'comment'])
-    for e in db.query(Entry).join(Game).all():
+    writer.writerow(['game', 'status', 'rating', 'hours_played', 'favorite',
+                     'start_date', 'end_date', 'comment'])
+    for e in db.query(Entry).join(Game).options(joinedload(Entry.game)).all():
         writer.writerow([
             e.game.name,
             e.status,
@@ -175,3 +257,131 @@ def export_csv(db: Session = Depends(get_db)):
     output.seek(0)
     headers = {'Content-Disposition': 'attachment; filename=gametracker.csv'}
     return StreamingResponse(iter([output.read()]), media_type='text/csv', headers=headers)
+
+
+@router.get('/export/json')
+def export_json(db: Session = Depends(get_db)):
+    """Full backup: every entry with the game snapshot needed to re-import it."""
+    items = []
+    for e in db.query(Entry).join(Game).options(joinedload(Entry.game)).all():
+        items.append({
+            'rawg_id': e.game.rawg_id,
+            'name': e.game.name,
+            'slug': e.game.slug,
+            'background_image': e.game.background_image,
+            'released': e.game.released,
+            'metacritic': e.game.metacritic,
+            'genres': e.game.genres,
+            'platforms': e.game.platforms,
+            'status': e.status,
+            'rating': e.rating,
+            'comment': e.comment,
+            'hours_played': e.hours_played,
+            'favorite': e.favorite,
+            'start_date': e.start_date,
+            'end_date': e.end_date,
+        })
+    payload = {'version': 1, 'entries': items}
+    headers = {'Content-Disposition': 'attachment; filename=gametracker-backup.json'}
+    return StreamingResponse(
+        iter([json.dumps(payload, indent=2)]),
+        media_type='application/json',
+        headers=headers,
+    )
+
+
+class ImportEntry(BaseModel):
+    rawg_id: int
+    name: str
+    slug: str = ''
+    background_image: str | None = None
+    released: str | None = None
+    metacritic: int | None = None
+    genres: list[str] | None = None
+    platforms: list[str] | None = None
+    status: str = 'PLAN'
+    rating: int | None = Field(default=None, ge=0, le=10)
+    comment: str | None = None
+    hours_played: float | None = Field(default=None, ge=0.0)
+    favorite: bool = False
+    start_date: str | None = None
+    end_date: str | None = None
+
+
+class ImportPayload(BaseModel):
+    version: int = 1
+    entries: list[ImportEntry]
+
+
+@router.post('/import/json')
+def import_json(payload: ImportPayload, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Restore a backup produced by /api/export/json.
+
+    Games are upserted from the snapshot (no RAWG calls needed); entries for
+    games already in the list are skipped, never overwritten.
+    """
+    imported = 0
+    skipped = 0
+    for item in payload.entries:
+        if item.status not in STATUSES:
+            skipped += 1
+            continue
+        game = db.query(Game).filter(Game.rawg_id == item.rawg_id).first()
+        if not game:
+            game = Game(
+                rawg_id=item.rawg_id,
+                slug=item.slug,
+                name=item.name,
+                background_image=item.background_image,
+                released=item.released,
+                metacritic=item.metacritic,
+                genres_json=json.dumps(item.genres) if item.genres else None,
+                platforms_json=json.dumps(item.platforms) if item.platforms else None,
+            )
+            db.add(game)
+            db.flush()
+        existing = db.query(Entry).filter(Entry.game_id == game.id).first()
+        if existing:
+            skipped += 1
+            continue
+        db.add(Entry(
+            game_id=game.id,
+            status=item.status,
+            rating=item.rating,
+            comment=item.comment,
+            hours_played=item.hours_played,
+            favorite=item.favorite,
+            start_date=item.start_date,
+            end_date=item.end_date,
+        ))
+        imported += 1
+    db.commit()
+    return {'imported': imported, 'skipped': skipped}
+
+
+@router.post('/debug/refresh')
+def debug_refresh(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Non-destructive: drop the RAWG response cache and mark every stored game
+    stale so the next page view refetches fresh data from the API. Keeps your
+    list, ratings, and feedback intact."""
+    cache_cleared = db.query(APICache).delete()
+    games_marked = db.query(Game).update({Game.last_rawg_fetch: None})
+    db.commit()
+    return {'cache_cleared': cache_cleared, 'games_marked_stale': games_marked}
+
+
+@router.post('/debug/reset')
+def debug_reset(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Destructive: wipe the entire local database — entries, games,
+    recommendation feedback, and cache. Your library is erased."""
+    entries = db.query(Entry).delete()
+    feedback = db.query(RecommendationFeedback).delete()
+    games = db.query(Game).delete()
+    cache = db.query(APICache).delete()
+    db.commit()
+    return {
+        'entries_deleted': entries,
+        'games_deleted': games,
+        'feedback_deleted': feedback,
+        'cache_deleted': cache,
+    }

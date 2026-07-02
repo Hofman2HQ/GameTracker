@@ -1654,3 +1654,438 @@ button.suggestion:hover::before {
     scroll-behavior: auto !important;
   }
 }
+
+/* Alert banner (degraded-service notices) */
+.alert-banner {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  border: 1px solid var(--danger);
+  border-radius: 12px;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+}
+
+/* Screenshot gallery on the game detail page */
+.screenshot-strip {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  margin-top: 12px;
+}
+
+.screenshot-thumb {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: block;
+  overflow: hidden;
+  transition: transform var(--transition-base), box-shadow var(--transition-base);
+}
+
+.screenshot-thumb img {
+  aspect-ratio: 16 / 9;
+  display: block;
+  height: auto;
+  object-fit: cover;
+  width: 100%;
+}
+
+.screenshot-thumb:hover {
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-2px) scale(1.02);
+}
+
+/* Save button saved/saving states */
+.save-button {
+  min-width: 110px;
+  transition: background-color var(--transition-base), transform var(--transition-base);
+}
+
+.save-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.save-button.is-saved {
+  background: var(--status-completed);
+  color: #fff;
+  pointer-events: none;
+}
+
+.save-button.is-saved::before {
+  content: '✓ ';
+}
+
+/* Modernized header nav: pill buttons with a filled active state */
+.nav a {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 9px 18px;
+}
+
+.nav a::before {
+  border-radius: 999px;
+}
+
+.nav a:hover {
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+}
+
+.nav a.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px var(--glow);
+  color: var(--accent-contrast);
+}
+
+.nav a.active:hover {
+  background: var(--accent-hover);
+  color: var(--accent-contrast);
+  transform: translateY(-1px);
+}
+
+.nav a.active::before {
+  display: none;
+}
+
+/* Save button in-flight state */
+.save-button.is-saving {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--muted);
+  cursor: progress;
+  pointer-events: none;
+}
+
+/* Recommendation feedback buttons */
+.feedback-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.feedback-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 10px;
+  transition: all var(--transition-base);
+}
+
+.feedback-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.feedback-btn.feedback-more.is-active {
+  background: var(--status-completed);
+  border-color: var(--status-completed);
+  color: #fff;
+}
+
+.feedback-btn.feedback-less.is-active {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-contrast);
+}
+
+.card.is-dimmed {
+  filter: grayscale(0.7);
+  opacity: 0.45;
+  transition: opacity var(--transition-base), filter var(--transition-base);
+}
+
+/* Recommendation card removal + backfill */
+#recommendations-grid .card {
+  position: relative;
+}
+
+.card-remove {
+  align-items: center;
+  background: rgba(20, 16, 12, 0.55);
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  font-size: 18px;
+  height: 30px;
+  justify-content: center;
+  line-height: 1;
+  opacity: 0;
+  padding: 0;
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  transition: opacity var(--transition-base), background-color var(--transition-base);
+  width: 30px;
+  z-index: 2;
+}
+
+#recommendations-grid .card:hover .card-remove,
+.card-remove:focus-visible {
+  opacity: 1;
+}
+
+.card-remove:hover {
+  background: var(--danger);
+}
+
+@media (hover: none) {
+  .card-remove {
+    opacity: 1;  /* always visible on touch screens */
+  }
+}
+
+.card-placeholder {
+  align-items: center;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  display: flex;
+  font-weight: 600;
+  justify-content: center;
+  min-height: 220px;
+}
+
+#recommendations-sentinel {
+  height: 1px;
+}
+
+/* Time to Beat info card */
+.playtime {
+  align-items: baseline;
+  color: var(--text);
+  display: inline-flex;
+  font-weight: 600;
+  gap: 5px;
+}
+
+.playtime-hours {
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.playtime-note {
+  display: block;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* Recommendations toolbar: platform pills + actions */
+.rec-toolbar {
+  align-items: flex-end;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  padding: 16px 18px;
+}
+
+.rec-filter {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
+.rec-filter-head {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.rec-filter-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.rec-filter-hint {
+  font-size: 12px;
+}
+
+.platform-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Visually-hidden checkbox drives the pill's selected state (keeps it accessible). */
+.pill-toggle {
+  cursor: pointer;
+}
+
+.pill-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pill {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 7px 15px;
+  transition: all var(--transition-base);
+  user-select: none;
+}
+
+.pill-toggle:hover .pill {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.pill-toggle input:checked + .pill {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  box-shadow: 0 4px 12px var(--glow);
+}
+
+.pill-toggle input:checked + .pill::before {
+  content: '✓ ';
+}
+
+.pill-toggle input:focus-visible + .pill {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.rec-toolbar-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.apply-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* Round icon-only button (refresh) */
+.icon-btn {
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text);
+  display: inline-flex;
+  font-size: 20px;
+  height: 42px;
+  justify-content: center;
+  line-height: 1;
+  transition: all var(--transition-base);
+  width: 42px;
+}
+
+.icon-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  transform: rotate(90deg);
+}
+
+/* Upcoming games */
+.upcoming-year {
+  margin-top: 28px;
+}
+
+.year-heading {
+  border-bottom: 2px solid var(--accent);
+  display: inline-block;
+  font-family: var(--font-display);
+  margin-bottom: 16px;
+  padding-bottom: 4px;
+}
+
+.tba-note {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.month-heading {
+  color: var(--muted);
+  font-size: 16px;
+  margin: 18px 0 12px;
+}
+
+.upcoming-month {
+  margin-bottom: 8px;
+}
+
+/* Debug page */
+.debug-grid {
+  gap: 18px;
+}
+
+.debug-action {
+  margin-top: 12px;
+}
+
+/* Search mode toggle (All Games / Upcoming) */
+.search-mode-toggle {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  margin-bottom: 18px;
+  padding: 4px;
+}
+
+.mode-tab {
+  border-radius: 999px;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 7px 18px;
+  transition: all var(--transition-base);
+}
+
+.mode-tab:hover {
+  color: var(--text);
+}
+
+.mode-tab.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  box-shadow: 0 4px 12px var(--glow);
+}
+
+.search-hint {
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
+/* "In your list" indicator on search/upcoming cards */
+.button.in-list {
+  background: color-mix(in srgb, var(--status-completed) 16%, var(--surface));
+  border: 1px solid var(--status-completed);
+  color: var(--text);
+  cursor: default;
+  font-weight: 600;
+}
+
+.button.in-list:hover {
+  background: color-mix(in srgb, var(--status-completed) 26%, var(--surface));
+}

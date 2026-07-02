@@ -1,10 +1,57 @@
 import difflib
 import json
+import logging
 import math
 import re
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any
+
 import httpx
-from .config import RAWG_API_KEY, RAWG_BASE_URL
+
+from .config import RAWG_API_KEY, RAWG_BASE_URL, settings
+
+logger = logging.getLogger(__name__)
+
+
+class RawgError(Exception):
+    """Base error for RAWG API failures."""
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class RawgAuthError(RawgError):
+    """RAWG rejected the API key (missing, empty, or invalid)."""
+
+
+class RawgNotFoundError(RawgError):
+    """The requested resource does not exist on RAWG."""
+
+
+class RawgUnavailableError(RawgError):
+    """RAWG is unreachable or persistently failing (network, timeout, 5xx)."""
+
+
+# Shared HTTP client with connection pooling, created by the app lifespan.
+# httpx.Client is thread-safe, so it is shared across FastAPI's worker threads.
+# When absent (tests, scripts), each request falls back to a one-shot client.
+_shared_client: httpx.Client | None = None
+
+
+def configure_shared_client() -> None:
+    global _shared_client
+    _shared_client = httpx.Client(
+        timeout=settings.http_timeout_seconds,
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+    )
+
+
+def close_shared_client() -> None:
+    global _shared_client
+    if _shared_client is not None:
+        _shared_client.close()
+        _shared_client = None
 
 
 def _normalize(text: str) -> str:
@@ -33,7 +80,7 @@ def _token_match_ratio(query_tokens: list[str], name_tokens: list[str]) -> float
     return matches / len(query_tokens)
 
 
-def _popularity_score(item: Dict[str, Any]) -> float:
+def _popularity_score(item: dict[str, Any]) -> float:
     score = 0.0
     metacritic = item.get('metacritic')
     if isinstance(metacritic, int):
@@ -49,15 +96,15 @@ def _popularity_score(item: Dict[str, Any]) -> float:
 
 def rank_results(
     query: str,
-    results: list[Dict[str, Any]],
+    results: list[dict[str, Any]],
     prefer_popular: bool = False
-) -> list[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     normalized_query = _normalize(query)
     if not normalized_query:
         return results
 
     min_score = 0.25 if len(normalized_query) < 4 else 0.35
-    scored_all: list[tuple[float, float, float, Dict[str, Any]]] = []
+    scored_all: list[tuple[float, float, float, dict[str, Any]]] = []
     for item in results:
         name = item.get('name') or ''
         normalized_name = _normalize(name)
@@ -89,38 +136,72 @@ def rank_results(
 
 
 class RawgClient:
-    def __init__(self, api_key: str = RAWG_API_KEY, base_url: str = RAWG_BASE_URL, db = None):
+    def __init__(self, api_key: str = RAWG_API_KEY, base_url: str = RAWG_BASE_URL, db=None):
         self.api_key = api_key
         self.base_url = base_url.rstrip('/')
         self.db = db
 
-    async def list_games(
+    def _get_json(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
+        """GET with retries; maps transport/HTTP failures to typed RawgErrors."""
+        url = f"{self.base_url}{path}"
+        attempts = max(1, settings.http_retries + 1)
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            if attempt:
+                time.sleep(0.5 * (2 ** (attempt - 1)))
+            try:
+                if _shared_client is not None:
+                    r = _shared_client.get(url, params=params)
+                else:
+                    with httpx.Client(timeout=settings.http_timeout_seconds) as client:
+                        r = client.get(url, params=params)
+            except httpx.HTTPError as exc:
+                last_error = exc
+                logger.warning("RAWG request failed (%s), attempt %d/%d: %s",
+                               path, attempt + 1, attempts, exc)
+                continue
+            if r.status_code in (401, 403):
+                raise RawgAuthError('RAWG API key is missing or invalid', r.status_code)
+            if r.status_code == 404:
+                raise RawgNotFoundError('Game not found on RAWG', 404)
+            if r.status_code == 429 or r.status_code >= 500:
+                last_error = httpx.HTTPStatusError(
+                    f"RAWG returned {r.status_code}", request=r.request, response=r)
+                logger.warning("RAWG returned %d (%s), attempt %d/%d",
+                               r.status_code, path, attempt + 1, attempts)
+                continue
+            r.raise_for_status()
+            return r.json()
+        raise RawgUnavailableError(f"RAWG API unavailable: {last_error}") from last_error
+
+    def list_games(
         self,
         page_size: int = 10,
-        query: Optional[str] = None,
-        ordering: Optional[str] = None,
-        platforms: Optional[int] = None,
-        parent_platforms: Optional[int] = None,
-        genres: Optional[str] = None,
+        query: str | None = None,
+        ordering: str | None = None,
+        platforms: int | None = None,
+        parent_platforms: int | str | None = None,
+        genres: str | None = None,
         search_precise: bool = True,
-        page: Optional[int] = None
-    ) -> Dict[str, Any]:
-        # Try cache if db session available
-        if self.db:
-            from .cache import get_cached_response, set_cached_response
-            cache_type = 'search' if query else 'list'
-            cached = get_cached_response(
-                self.db,
-                cache_type,
-                page_size=page_size,
-                query=query,
-                ordering=ordering,
-                platforms=platforms,
-                parent_platforms=parent_platforms,
-                genres=genres,
-                search_precise=search_precise,
-                page=page
-            )
+        page: int | None = None,
+        dates: str | None = None,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        cache_params = dict(
+            page_size=page_size,
+            query=query,
+            ordering=ordering,
+            platforms=platforms,
+            parent_platforms=parent_platforms,
+            genres=genres,
+            search_precise=search_precise,
+            page=page,
+            dates=dates,
+        )
+        cache_type = 'search' if query else 'list'
+        if self.db and not force_refresh:
+            from .cache import get_cached_response
+            cached = get_cached_response(self.db, cache_type, **cache_params)
             if cached:
                 return cached
 
@@ -141,42 +222,29 @@ class RawgClient:
             params['platforms'] = platforms
         if genres:
             params['genres'] = genres
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(f"{self.base_url}/games", params=params)
-            r.raise_for_status()
-            result = r.json()
+        if dates:
+            params['dates'] = dates
 
-        # Cache the result if db session available
+        result = self._get_json('/games', params)
+
         if self.db:
             from .cache import set_cached_response
-            cache_type = 'search' if query else 'list'
-            set_cached_response(
-                self.db,
-                cache_type,
-                result,
-                page_size=page_size,
-                query=query,
-                ordering=ordering,
-                platforms=platforms,
-                parent_platforms=parent_platforms,
-                genres=genres,
-                search_precise=search_precise,
-                page=page
-            )
+            set_cached_response(self.db, cache_type, result, **cache_params)
 
         return result
 
-    async def search_games(
+    def search_games(
         self,
         query: str,
         page_size: int = 10,
-        platforms: Optional[int] = None,
-        parent_platforms: Optional[int] = None,
-        genres: Optional[str] = None,
-        ordering: Optional[str] = None,
-        page: Optional[int] = None
-    ) -> Dict[str, Any]:
-        return await self.list_games(
+        platforms: int | None = None,
+        parent_platforms: int | str | None = None,
+        genres: str | None = None,
+        ordering: str | None = None,
+        page: int | None = None,
+        dates: str | None = None,
+    ) -> dict[str, Any]:
+        return self.list_games(
             page_size=page_size,
             query=query,
             ordering=ordering,
@@ -184,87 +252,88 @@ class RawgClient:
             parent_platforms=parent_platforms,
             genres=genres,
             search_precise=True,
-            page=page
+            page=page,
+            dates=dates,
         )
 
-    async def list_top_games(
+    def list_top_games(
         self,
         page_size: int = 10,
-        platforms: Optional[int] = None,
-        parent_platforms: Optional[int] = None,
-        genres: Optional[str] = None,
-        page: Optional[int] = None
-    ) -> Dict[str, Any]:
-        return await self.list_games(
+        platforms: int | None = None,
+        parent_platforms: int | str | None = None,
+        genres: str | None = None,
+        page: int | None = None,
+        ordering: str = '-metacritic',
+        dates: str | None = None,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        return self.list_games(
             page_size=page_size,
-            ordering='-metacritic',
+            ordering=ordering,
             platforms=platforms,
             parent_platforms=parent_platforms,
             genres=genres,
-            page=page
+            page=page,
+            dates=dates,
+            force_refresh=force_refresh,
         )
 
-    async def list_genres(self) -> list[dict[str, Any]]:
-        # Try cache if db session available
+    def list_genres(self) -> list[dict[str, Any]]:
         if self.db:
-            from .cache import get_cached_response, set_cached_response
+            from .cache import get_cached_response
             cached = get_cached_response(self.db, 'genres')
             if cached:
                 return cached.get('results', [])
 
-        params = {'key': self.api_key, 'page_size': 50}
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(f"{self.base_url}/genres", params=params)
-            r.raise_for_status()
-            data = r.json()
+        data = self._get_json('/genres', {'key': self.api_key, 'page_size': 50})
         results = [
             {'id': g.get('id'), 'name': g.get('name'), 'slug': g.get('slug')}
             for g in data.get('results', [])
             if g.get('id') and g.get('name') and g.get('slug')
         ]
 
-        # Cache the result if db session available
         if self.db:
             from .cache import set_cached_response
             set_cached_response(self.db, 'genres', {'results': results})
 
         return results
 
-    async def list_platforms(self) -> list[dict[str, Any]]:
-        # Try cache if db session available
+    def list_platforms(self) -> list[dict[str, Any]]:
         if self.db:
-            from .cache import get_cached_response, set_cached_response
+            from .cache import get_cached_response
             cached = get_cached_response(self.db, 'platforms')
             if cached:
                 return cached.get('results', [])
 
-        params = {'key': self.api_key, 'page_size': 50}
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(f"{self.base_url}/platforms/lists/parents", params=params)
-            r.raise_for_status()
-            data = r.json()
+        data = self._get_json('/platforms/lists/parents', {'key': self.api_key, 'page_size': 50})
         results = [
             {'id': p.get('id'), 'name': p.get('name')}
             for p in data.get('results', [])
             if p.get('id') and p.get('name')
         ]
 
-        # Cache the result if db session available
         if self.db:
             from .cache import set_cached_response
             set_cached_response(self.db, 'platforms', {'results': results})
 
         return results
 
-    async def get_game(self, rawg_id: int) -> Dict[str, Any]:
-        params = { 'key': self.api_key }
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(f"{self.base_url}/games/{rawg_id}", params=params)
-            r.raise_for_status()
-            return r.json()
+    def get_game(self, rawg_id: int) -> dict[str, Any]:
+        return self._get_json(f"/games/{rawg_id}", {'key': self.api_key})
+
+    def list_screenshots(self, rawg_id: int, limit: int = 10) -> list[str]:
+        """Screenshot image URLs for a game (best-effort extra media)."""
+        data = self._get_json(
+            f"/games/{rawg_id}/screenshots",
+            {'key': self.api_key, 'page_size': limit},
+        )
+        return [
+            s['image'] for s in data.get('results', [])
+            if s.get('image') and not s.get('is_deleted')
+        ][:limit]
 
     @staticmethod
-    def map_game_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def map_game_payload(payload: dict[str, Any]) -> dict[str, Any]:
         description = payload.get('description_raw')
         if not description:
             raw_html = payload.get('description') or ''
@@ -279,6 +348,8 @@ class RawgClient:
             'released': payload.get('released'),
             'metacritic': payload.get('metacritic'),
             'description': description,
+            'playtime': payload.get('playtime') or None,
+            'tba': bool(payload.get('tba')),
             'genres_json': json.dumps(genres) if genres else None,
             'platforms_json': json.dumps(platforms) if platforms else None,
         }

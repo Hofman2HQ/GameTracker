@@ -1,9 +1,106 @@
 {% extends 'base.html' %}
 {% block content %}
+  {% if error %}
+    <div class="alert-banner" role="alert">{{ error }}</div>
+  {% endif %}
+  <div class="search-mode-toggle" role="tablist">
+    <a href="/search" class="mode-tab {% if not upcoming_mode %}active{% endif %}" role="tab">All Games</a>
+    <a href="/search?upcoming=1{% if platform %}&platform={{ platform }}{% endif %}"
+       class="mode-tab {% if upcoming_mode %}active{% endif %}" role="tab">Upcoming</a>
+  </div>
+
+  {% if upcoming_mode %}
+    <div class="page-intro">
+      <h2>Upcoming Games</h2>
+      <p>Games on the horizon, grouped by release window. Filter by platform to plan your next pickups.</p>
+    </div>
+    <form method="get" action="/search" class="controls search-bar">
+      <input type="hidden" name="upcoming" value="1" />
+      <div class="filters">
+        <label for="platform-upcoming">Platform
+          <select name="platform" id="platform-upcoming" onchange="this.form.submit()">
+            <option value="">All Platforms</option>
+            {% for p in platforms %}
+              <option value="{{ p.id }}" {% if p.id == platform %}selected{% endif %}>{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <button type="submit">Apply</button>
+      {% if platform %}<a href="/search?upcoming=1" class="button clear-filters">Clear</a>{% endif %}
+    </form>
+
+    {% macro game_card(g) %}
+      <div class="card">
+        {% if g.background_image %}
+          <a href="/game/{{ g.id }}"><img class="thumb" src="{{ g.background_image }}" alt="{{ g.name }}" loading="lazy" /></a>
+        {% else %}
+          <div class="thumb-placeholder">{{ g.name }}</div>
+        {% endif %}
+        <div class="card-body">
+          <h3><a href="/game/{{ g.id }}">{{ g.name }}</a></h3>
+          <div class="meta-line">
+            {% if g.released %}<span class="badge">{{ g.released }}</span>{% endif %}
+            {% if g.metacritic %}<span class="badge badge-strong">MC {{ g.metacritic }}</span>{% endif %}
+          </div>
+          {% if g.genres %}
+            <div class="chips">
+              {% for genre in g.genres[:3] %}<span class="chip">{{ genre }}</span>{% endfor %}
+            </div>
+          {% endif %}
+          {% if g.platforms %}
+            <div class="chips">
+              {% for platform in g.platforms[:3] %}<span class="chip chip-outline">{{ platform }}</span>{% endfor %}
+            </div>
+          {% endif %}
+          {% if g.owned %}
+            <a class="button in-list" href="/game/{{ g.id }}">✓ In your list</a>
+          {% else %}
+            <form method="post" action="/add">
+              <input type="hidden" name="rawg_id" value="{{ g.id }}" />
+              <button type="submit">Add to My List</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    {% endmacro %}
+
+    {% if not years and not tba %}
+      <div class="empty-state">
+        <h3>No upcoming games found</h3>
+        <p>Try clearing the platform filter, or check back later.</p>
+      </div>
+    {% endif %}
+
+    {% for yr in years %}
+      <section class="upcoming-year">
+        <h2 class="year-heading">{{ yr.year }}</h2>
+        {% for m in yr.months %}
+          <div class="upcoming-month">
+            <h3 class="month-heading">{{ m.name }} {{ yr.year }}</h3>
+            <div class="grid">{% for g in m.games %}{{ game_card(g) }}{% endfor %}</div>
+          </div>
+        {% endfor %}
+        {% if yr.undated %}
+          <div class="upcoming-month">
+            <h3 class="month-heading">{{ yr.year }} — month to be confirmed</h3>
+            <div class="grid">{% for g in yr.undated %}{{ game_card(g) }}{% endfor %}</div>
+          </div>
+        {% endif %}
+      </section>
+    {% endfor %}
+
+    {% if tba %}
+      <section class="upcoming-year">
+        <h2 class="year-heading">TBA <span class="muted tba-note">— announced, no release date yet</span></h2>
+        <div class="grid">{% for g in tba %}{{ game_card(g) }}{% endfor %}</div>
+      </section>
+    {% endif %}
+  {% else %}
   <div class="page-intro">
     <h2>Search Games</h2>
-    {% if not q and not platform and not genre %}
-      <p>Discover and add games to your collection. Browse top-rated titles or search for specific games.</p>
+    {% if not q and not platform and not genre and not year and not month %}
+      <p>Discover and add games to your collection. Browse popular titles or search for specific games.</p>
     {% else %}
       <p>
         {% if q %}Showing results for "<strong>{{ q }}</strong>"{% endif %}
@@ -16,6 +113,9 @@
           {% for g in genres %}
             {% if g.slug == genre %} in <strong>{{ g.name }}</strong>{% endif %}
           {% endfor %}
+        {% endif %}
+        {% if year %} released in
+          {% if month %}<strong>{{ month_choices[month - 1][1] }} {{ year }}</strong>{% else %}<strong>{{ year }}</strong>{% endif %}
         {% endif %}
       </p>
     {% endif %}
@@ -44,16 +144,33 @@
           {% endfor %}
         </select>
       </label>
+      <label for="year-select">Release Year
+        <select name="year" id="year-select">
+          <option value="">Any Year</option>
+          {% for y in year_choices %}
+            <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label for="month-select">Release Month
+        <select name="month" id="month-select">
+          <option value="">Any Month</option>
+          {% for num, name in month_choices %}
+            <option value="{{ num }}" {% if num == month %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </label>
     </div>
     <button type="submit">Search</button>
-    {% if q or platform or genre %}
+    {% if q or platform or genre or year or month %}
       <a href="/search" class="button clear-filters">Clear All</a>
     {% endif %}
   </form>
+  <p class="muted search-hint">Tip: pick a Release Month together with a Year. A month on its own is ignored.</p>
 
 
 
-  {% if (q or platform or genre) and results|length == 0 %}
+  {% if (q or platform or genre or year or month) and results|length == 0 %}
     <div class="empty-state">
       <h3>No results found</h3>
       <p>Try adjusting your search terms or filters to find more games.</p>
@@ -88,10 +205,14 @@
             {% endfor %}
           </div>
         {% endif %}
-        <form method="post" action="/add">
-          <input type="hidden" name="rawg_id" value="{{ g.id }}" />
-          <button type="submit">Add to My List</button>
-        </form>
+        {% if g.owned %}
+          <a class="button in-list" href="/game/{{ g.id }}">✓ In your list</a>
+        {% else %}
+          <form method="post" action="/add">
+            <input type="hidden" name="rawg_id" value="{{ g.id }}" />
+            <button type="submit">Add to My List</button>
+          </form>
+        {% endif %}
       </div>
     </div>
   {% endfor %}
@@ -109,6 +230,8 @@
           data-query="{{ q }}"
           data-platform="{{ platform }}"
           data-genre="{{ genre }}"
+          data-year="{{ year }}"
+          data-month="{{ month }}"
         >Load more</a>
       {% endif %}
     </div>
@@ -302,34 +425,38 @@
           body.appendChild(buildChips(platforms, 'chip chip-outline', 3));
         }
 
-        var form = document.createElement('form');
-        form.method = 'post';
-        form.action = '/add';
-        var input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = 'rawg_id';
-        input.value = item.id;
-        form.appendChild(input);
-        var button = document.createElement('button');
-        button.type = 'submit';
-        button.textContent = 'Add to My List';
-        form.appendChild(button);
-        body.appendChild(form);
+        if (item.owned) {
+          var inList = document.createElement('a');
+          inList.className = 'button in-list';
+          inList.href = '/game/' + item.id;
+          inList.textContent = '✓ In your list';
+          body.appendChild(inList);
+        } else {
+          var form = document.createElement('form');
+          form.method = 'post';
+          form.action = '/add';
+          var input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'rawg_id';
+          input.value = item.id;
+          form.appendChild(input);
+          var button = document.createElement('button');
+          button.type = 'submit';
+          button.textContent = 'Add to My List';
+          form.appendChild(button);
+          body.appendChild(form);
+        }
         card.appendChild(body);
         return card;
       }
 
       function buildParams(page) {
         var params = new URLSearchParams();
-        if (loadMore.dataset.query) {
-          params.set('query', loadMore.dataset.query);
-        }
-        if (loadMore.dataset.platform) {
-          params.set('platform', loadMore.dataset.platform);
-        }
-        if (loadMore.dataset.genre) {
-          params.set('genre', loadMore.dataset.genre);
-        }
+        if (loadMore.dataset.query) params.set('query', loadMore.dataset.query);
+        if (loadMore.dataset.platform) params.set('platform', loadMore.dataset.platform);
+        if (loadMore.dataset.genre) params.set('genre', loadMore.dataset.genre);
+        if (loadMore.dataset.year) params.set('year', loadMore.dataset.year);
+        if (loadMore.dataset.month) params.set('month', loadMore.dataset.month);
         params.set('page', String(page));
         params.set('page_size', String(pageSize));
         return params;
@@ -337,15 +464,11 @@
 
       function updateLink(page) {
         var hrefParams = [];
-        if (loadMore.dataset.query) {
-          hrefParams.push('q=' + encodeURIComponent(loadMore.dataset.query));
-        }
-        if (loadMore.dataset.platform) {
-          hrefParams.push('platform=' + encodeURIComponent(loadMore.dataset.platform));
-        }
-        if (loadMore.dataset.genre) {
-          hrefParams.push('genre=' + encodeURIComponent(loadMore.dataset.genre));
-        }
+        if (loadMore.dataset.query) hrefParams.push('q=' + encodeURIComponent(loadMore.dataset.query));
+        if (loadMore.dataset.platform) hrefParams.push('platform=' + encodeURIComponent(loadMore.dataset.platform));
+        if (loadMore.dataset.genre) hrefParams.push('genre=' + encodeURIComponent(loadMore.dataset.genre));
+        if (loadMore.dataset.year) hrefParams.push('year=' + encodeURIComponent(loadMore.dataset.year));
+        if (loadMore.dataset.month) hrefParams.push('month=' + encodeURIComponent(loadMore.dataset.month));
         hrefParams.push('page=' + encodeURIComponent(page));
         loadMore.href = '/search?' + hrefParams.join('&');
       }
@@ -396,22 +519,29 @@
         var qInput = document.getElementById('search-input');
         var pSel = document.getElementById('platform-select');
         var gSel = document.getElementById('genre-select');
+        var ySel = document.getElementById('year-select');
+        var mSel = document.getElementById('month-select');
         var query = qInput ? qInput.value.trim() : '';
         var plat = pSel ? pSel.value : '';
         var gen = gSel ? gSel.value : '';
-        
+        var yr = ySel ? ySel.value : '';
+        // A month with no year can't form a range, so ignore it on its own.
+        var mo = (mSel && yr) ? mSel.value : '';
+
         var params = new URLSearchParams();
         if (query) params.set('query', query);
         if (plat) params.set('platform', plat);
         if (gen) params.set('genre', gen);
+        if (yr) params.set('year', yr);
+        if (mo) params.set('month', mo);
         params.set('page_size', String(pageSize));
         params.set('page', '1');
-        
+
         var emptyStater = document.querySelector('.empty-state');
         if (emptyStater) emptyStater.style.display = 'none';
 
         grid.innerHTML = '<div class="loading" style="grid-column: 1/-1;">Loading...</div>';
-        
+
         fetch('/api/search?' + params.toString())
           .then(res => res.json())
           .then(data => {
@@ -427,6 +557,8 @@
                loadMore.dataset.query = query;
                loadMore.dataset.platform = plat;
                loadMore.dataset.genre = gen;
+               loadMore.dataset.year = yr;
+               loadMore.dataset.month = mo;
                loadMore.dataset.page = '1';
                if (indicator) indicator.textContent = 'Page 1';
                if (!data.next || !items.length) {
@@ -436,16 +568,19 @@
                  updateLink(2);
                }
              }
-             
-             // Update URL silently
+
+             // Update URL silently (uses the page's own param names).
              var winParams = new URLSearchParams();
              if (query) winParams.set('q', query);
              if (plat) winParams.set('platform', plat);
              if (gen) winParams.set('genre', gen);
+             if (yr) winParams.set('year', yr);
+             if (mo) winParams.set('month', mo);
              var newStr = winParams.toString();
              window.history.pushState({}, '', '/search' + (newStr ? '?' + newStr : ''));
           });
       }
     })();
   </script>
+  {% endif %}
 {% endblock %}

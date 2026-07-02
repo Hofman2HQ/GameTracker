@@ -3,9 +3,7 @@ Tests for the cache layer in app/cache.py.
 """
 
 import json
-from datetime import datetime, timedelta
-
-import pytest
+from datetime import timedelta
 
 from app.cache import (
     _make_cache_key,
@@ -15,7 +13,7 @@ from app.cache import (
     set_cached_response,
 )
 from app.models import APICache, Game
-
+from app.timeutil import utcnow
 
 # ---------------------------------------------------------------------------
 # _make_cache_key
@@ -67,7 +65,7 @@ class TestGetSetCachedResponse:
         set_cached_response(db, "search", data, query="old")
         # Manually expire the entry.
         entry = db.query(APICache).first()
-        entry.expires_at = datetime.utcnow() - timedelta(seconds=1)
+        entry.expires_at = utcnow() - timedelta(seconds=1)
         db.commit()
 
         result = get_cached_response(db, "search", query="old")
@@ -80,7 +78,7 @@ class TestGetSetCachedResponse:
         data = {"results": []}
         set_cached_response(db, "search", data, query="old")
         entry = db.query(APICache).first()
-        entry.expires_at = datetime.utcnow() - timedelta(seconds=1)
+        entry.expires_at = utcnow() - timedelta(seconds=1)
         db.commit()
 
         result = get_cached_response(db, "search", query="old")
@@ -103,7 +101,7 @@ class TestGetSetCachedResponse:
             cache_key=_make_cache_key("search", query="bad"),
             cache_type="search",
             response_json="NOT_VALID_JSON",
-            expires_at=datetime.utcnow() + timedelta(hours=1),
+            expires_at=utcnow() + timedelta(hours=1),
         )
         db.add(entry)
         db.commit()
@@ -131,13 +129,13 @@ class TestCleanupExpiredCache:
             cache_key="search:fresh",
             cache_type="search",
             response_json=json.dumps({}),
-            expires_at=datetime.utcnow() + timedelta(hours=1),
+            expires_at=utcnow() + timedelta(hours=1),
         )
         expired = APICache(
             cache_key="search:expired",
             cache_type="search",
             response_json=json.dumps({}),
-            expires_at=datetime.utcnow() - timedelta(seconds=1),
+            expires_at=utcnow() - timedelta(seconds=1),
         )
         db.add_all([fresh, expired])
         db.commit()
@@ -157,7 +155,7 @@ class TestCleanupExpiredCache:
                 cache_key=f"search:key{i}",
                 cache_type="search",
                 response_json=json.dumps({}),
-                expires_at=datetime.utcnow() - timedelta(seconds=1),
+                expires_at=utcnow() - timedelta(seconds=1),
             ))
         db.commit()
 
@@ -185,19 +183,20 @@ class TestIsGameDataFresh:
 
     def test_fresh_data(self):
         game = self._make_game(
-            last_rawg_fetch=datetime.utcnow() - timedelta(days=1)
+            last_rawg_fetch=utcnow() - timedelta(days=1)
         )
         assert is_game_data_fresh(game) is True
 
     def test_stale_data(self):
+        from app.config import settings
         game = self._make_game(
-            last_rawg_fetch=datetime.utcnow() - timedelta(days=10)
+            last_rawg_fetch=utcnow() - timedelta(days=settings.game_refresh_days + 1)
         )
         assert is_game_data_fresh(game) is False
 
     def test_custom_max_age(self):
         game = self._make_game(
-            last_rawg_fetch=datetime.utcnow() - timedelta(days=2)
+            last_rawg_fetch=utcnow() - timedelta(days=2)
         )
         assert is_game_data_fresh(game, max_age_days=1) is False
         assert is_game_data_fresh(game, max_age_days=3) is True
@@ -205,6 +204,6 @@ class TestIsGameDataFresh:
     def test_exactly_on_boundary_is_stale(self):
         # age.days == max_age_days → NOT fresh (strict less-than check).
         game = self._make_game(
-            last_rawg_fetch=datetime.utcnow() - timedelta(days=7)
+            last_rawg_fetch=utcnow() - timedelta(days=7)
         )
         assert is_game_data_fresh(game, max_age_days=7) is False

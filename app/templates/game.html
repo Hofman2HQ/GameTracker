@@ -11,6 +11,15 @@
         {% if game.metacritic %}<span class="badge badge-strong">MC {{ game.metacritic }}</span>{% endif %}
         {% if game.released %}<span class="badge">{{ game.released }}</span>{% endif %}
       </div>
+      {% if screenshots %}
+        <div class="screenshot-strip" aria-label="Screenshots">
+          {% for shot in screenshots %}
+            <a href="{{ shot }}" target="_blank" rel="noopener" class="screenshot-thumb">
+              <img src="{{ shot }}" alt="{{ game.name }} screenshot {{ loop.index }}" loading="lazy" />
+            </a>
+          {% endfor %}
+        </div>
+      {% endif %}
     </div>
     <div class="detail-body">
       <h2>{{ game.name }}</h2>
@@ -40,6 +49,17 @@
               </div>
             {% else %}
               <span class="muted">Not listed</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="info-card">
+          <div class="label">Time to Beat</div>
+          <div class="value">
+            {% if game.playtime %}
+              <span class="playtime"><span class="playtime-hours">{{ game.playtime }}</span> hours</span>
+              <span class="muted playtime-note">average time to complete</span>
+            {% else %}
+              <span class="muted">Not available</span>
             {% endif %}
           </div>
         </div>
@@ -80,10 +100,10 @@
             <input type="number" name="hours_played" step="0.1" min="0" value="{{ entry.hours_played if entry.hours_played is not none else '' }}" class="plan-disabled" />
           </label>
           <label>Start Date
-            <input type="date" name="start_date" value="{{ entry.start_date if entry.start_date else '' }}" class="plan-disabled" />
+            <input type="date" name="start_date" id="start-date-input" value="{{ entry.start_date if entry.start_date else '' }}" {% if game.released %}min="{{ game.released }}"{% endif %} class="plan-disabled" />
           </label>
           <label>End Date
-            <input type="date" name="end_date" value="{{ entry.end_date if entry.end_date else '' }}" class="plan-disabled" />
+            <input type="date" name="end_date" id="end-date-input" value="{{ entry.end_date if entry.end_date else '' }}" {% if game.released %}min="{{ game.released }}"{% endif %} class="plan-disabled" />
           </label>
           <div class="favorite-control">
             <input type="hidden" name="favorite" id="favorite-input" value="{{ 1 if entry.favorite else 0 }}" />
@@ -95,7 +115,9 @@
             <textarea name="comment" rows="5" placeholder="Your thoughts...">{{ entry.comment or '' }}</textarea>
           </label>
           <div class="actions">
-            <button type="submit">Save</button>
+            <button type="submit" id="save-button" class="save-button {% if saved %}is-saved{% endif %}">
+              {% if saved %}Saved!{% else %}Save{% endif %}
+            </button>
           </div>
         </form>
         <form method="post" action="/entries/{{ entry.id }}/delete" onsubmit="return confirm('Remove from your list?')">
@@ -156,6 +178,76 @@
             if (statusSelect) {
               statusSelect.addEventListener('change', togglePlanFields);
               togglePlanFields(); // immediately execute on load to render view state
+            }
+
+            // Save button: submit in place (no reload) with a
+            // Saving. → Saving.. → ✓ Saved! → Update state cycle.
+            var saveButton = document.getElementById('save-button');
+            var updateForm = saveButton ? saveButton.closest('form') : null;
+            if (saveButton && updateForm) {
+              updateForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                if (saveButton.disabled) {
+                  return;
+                }
+                saveButton.disabled = true;
+                saveButton.classList.remove('is-saved');
+                saveButton.classList.add('is-saving');
+                var dots = 1;
+                saveButton.textContent = 'Saving.';
+                var pulse = setInterval(function () {
+                  dots = (dots % 3) + 1;
+                  saveButton.textContent = 'Saving' + '.'.repeat(dots);
+                }, 350);
+                var minWait = new Promise(function (resolve) { setTimeout(resolve, 800); });
+                var save = fetch(updateForm.action, {
+                  method: 'POST',
+                  body: new FormData(updateForm)
+                });
+                Promise.all([save, minWait])
+                  .then(function (results) {
+                    if (!results[0].ok) { throw new Error('save failed'); }
+                    clearInterval(pulse);
+                    saveButton.classList.remove('is-saving');
+                    saveButton.classList.add('is-saved');
+                    saveButton.textContent = 'Saved!';
+                    setTimeout(function () {
+                      saveButton.classList.remove('is-saved');
+                      saveButton.disabled = false;
+                      saveButton.textContent = 'Update';
+                    }, 1800);
+                  })
+                  .catch(function () {
+                    clearInterval(pulse);
+                    saveButton.classList.remove('is-saving');
+                    saveButton.disabled = false;
+                    saveButton.textContent = 'Retry Save';
+                  });
+              });
+              if (saveButton.classList.contains('is-saved')) {
+                // Server-rendered ?saved=1 state (non-JS fallback): drop the
+                // param so a refresh doesn't replay it, then settle to Update.
+                if (window.history.replaceState) {
+                  var url = new URL(window.location.href);
+                  url.searchParams.delete('saved');
+                  window.history.replaceState(null, '', url.pathname + url.search);
+                }
+                setTimeout(function () {
+                  saveButton.classList.remove('is-saved');
+                  saveButton.textContent = 'Update';
+                }, 1800);
+              }
+            }
+
+            // End date can never precede the start date.
+            var startInput = document.getElementById('start-date-input');
+            var endInput = document.getElementById('end-date-input');
+            if (startInput && endInput) {
+              var syncEndMin = function () {
+                endInput.min = startInput.value || startInput.min || '';
+              };
+              startInput.addEventListener('change', syncEndMin);
+              syncEndMin();
             }
           })();
         </script>

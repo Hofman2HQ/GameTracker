@@ -1,9 +1,46 @@
 {% extends 'base.html' %}
 {% block content %}
+  {% if error %}
+    <div class="alert-banner" role="alert">{{ error }}</div>
+  {% endif %}
   <div class="page-intro">
     <h2>Recommendations</h2>
     <p>Personalized game suggestions based on your collection, ratings, and favorite genres.</p>
   </div>
+
+  <form method="get" action="/recommendations" class="rec-toolbar" id="rec-filter-form">
+    <div class="rec-filter">
+      <div class="rec-filter-head">
+        <span class="rec-filter-label">Platforms</span>
+        <span class="muted rec-filter-hint">leave all off for every platform</span>
+      </div>
+      <div class="platform-pills">
+        {% for p in platform_choices %}
+          <label class="pill-toggle">
+            <input type="checkbox" name="platforms" value="{{ p.id }}"
+                   {% if p.id in platform_selected %}checked{% endif %} />
+            <span class="pill">{{ p.name }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="rec-toolbar-actions">
+      <button type="submit" class="apply-btn" id="rec-apply" disabled>Apply</button>
+      <a class="icon-btn" id="rec-refresh"
+         title="Refresh recommendations" aria-label="Refresh recommendations"
+         href="/recommendations?refresh=1{% if platforms_param %}&platforms={{ platforms_param }}{% endif %}">↻</a>
+    </div>
+  </form>
+  <script>
+    (function () {
+      // Enable "Apply" only once the platform selection actually changes.
+      var form = document.getElementById('rec-filter-form');
+      var apply = document.getElementById('rec-apply');
+      if (!form || !apply) return;
+      form.addEventListener('change', function () { apply.disabled = false; });
+    })();
+  </script>
+
   {% if recommendations|length %}
     <div class="controls pagination">
       <span class="muted" id="recommendations-page-indicator">Page {{ page }}</span>
@@ -14,6 +51,7 @@
           href="{{ next_page_url }}"
           data-page="{{ page }}"
           data-page-size="{{ page_size }}"
+          data-platforms="{{ platforms_param }}"
         >Load more</a>
       {% endif %}
     </div>
@@ -25,9 +63,10 @@
       <a class="button" href="/search">Explore Games</a>
     </div>
   {% else %}
-    <div class="grid" id="recommendations-grid">
+    <div class="grid" id="recommendations-grid" data-platforms="{{ platforms_param }}">
       {% for rec in recommendations %}
-        <div class="card">
+        <div class="card" data-rawg-id="{{ rec.id }}">
+          <button type="button" class="card-remove" title="Remove this recommendation" aria-label="Remove {{ rec.name }} from recommendations">&times;</button>
           {% if rec.background_image %}
             <img class="thumb" src="{{ rec.background_image }}" alt="{{ rec.name }}" loading="lazy" />
           {% else %}
@@ -62,23 +101,50 @@
               <input type="hidden" name="rawg_id" value="{{ rec.id }}" />
               <button type="submit">Add to My List</button>
             </form>
+            <div class="feedback-row"
+                 data-rawg-id="{{ rec.id }}"
+                 data-name="{{ rec.name }}"
+                 data-genres='{{ rec.genres | tojson }}'
+                 data-platforms='{{ rec.platforms | tojson }}'>
+              <button type="button" class="feedback-btn feedback-more {% if rec.feedback == 'more' %}is-active{% endif %}"
+                      data-direction="more" title="Tune recommendations toward games like this">
+                👍 More like this
+              </button>
+              <button type="button" class="feedback-btn feedback-less"
+                      data-direction="less" title="Hide this game and show fewer like it">
+                👎 Less like this
+              </button>
+            </div>
           </div>
         </div>
       {% endfor %}
     </div>
+    <div id="recommendations-sentinel" aria-hidden="true"></div>
   {% endif %}
   <script>
     (function () {
-      var loadMore = document.getElementById('recommendations-load-more');
       var grid = document.getElementById('recommendations-grid');
-      if (!loadMore || !grid) {
+      if (!grid) {
         return;
       }
-      var indicator = document.getElementById('recommendations-page-indicator');
-      var pageSize = parseInt(loadMore.dataset.pageSize || '8', 10);
-      var currentPage = parseInt(loadMore.dataset.page || '1', 10);
-      var isLoading = false;
-      var originalLabel = loadMore.textContent;
+
+      // Every rawg_id currently displayed — used to dedupe appended pages
+      // and to pick unseen games when backfilling after a removal.
+      var seenIds = new Set();
+      grid.querySelectorAll('.card[data-rawg-id]').forEach(function (card) {
+        seenIds.add(parseInt(card.dataset.rawgId, 10));
+      });
+
+      function postFeedback(payload) {
+        return fetch('/api/recommendations/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(function (res) {
+          if (!res.ok) { throw new Error('feedback failed'); }
+          return res.json();
+        });
+      }
 
       function buildChips(values, className, limit) {
         var wrapper = document.createElement('div');
@@ -95,6 +161,16 @@
       function createCard(item) {
         var card = document.createElement('div');
         card.className = 'card';
+        card.dataset.rawgId = item.id;
+
+        var remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'card-remove';
+        remove.title = 'Remove this recommendation';
+        remove.setAttribute('aria-label', 'Remove ' + (item.name || 'game') + ' from recommendations');
+        remove.innerHTML = '&times;';
+        card.appendChild(remove);
+
         if (item.background_image) {
           var img = document.createElement('img');
           img.className = 'thumb';
@@ -119,12 +195,12 @@
         if (item.released) {
           var release = document.createElement('span');
           release.className = 'badge';
-          release.textContent = 'Release ' + item.released;
+          release.textContent = item.released;
           meta.appendChild(release);
         }
         if (item.metacritic) {
           var mc = document.createElement('span');
-          mc.className = 'badge';
+          mc.className = 'badge badge-strong';
           mc.textContent = 'MC ' + item.metacritic;
           meta.appendChild(mc);
         }
@@ -163,49 +239,195 @@
         button.textContent = 'Add to My List';
         form.appendChild(button);
         body.appendChild(form);
+
+        var feedbackRow = document.createElement('div');
+        feedbackRow.className = 'feedback-row';
+        feedbackRow.dataset.rawgId = item.id;
+        feedbackRow.dataset.name = item.name || '';
+        feedbackRow.dataset.genres = JSON.stringify(item.genres || []);
+        feedbackRow.dataset.platforms = JSON.stringify(item.platforms || []);
+        [['more', '\ud83d\udc4d More like this'], ['less', '\ud83d\udc4e Less like this']].forEach(function (pair) {
+          var fb = document.createElement('button');
+          fb.type = 'button';
+          fb.className = 'feedback-btn feedback-' + pair[0];
+          fb.dataset.direction = pair[0];
+          fb.textContent = pair[1];
+          if (pair[0] === 'more' && item.feedback === 'more') {
+            fb.classList.add('is-active');
+          }
+          feedbackRow.appendChild(fb);
+        });
+        body.appendChild(feedbackRow);
         card.appendChild(body);
         return card;
       }
 
-      function updateLink(page) {
-        loadMore.href = '/recommendations?page=' + encodeURIComponent(page);
+      function cardPayload(card, direction) {
+        var row = card.querySelector('.feedback-row');
+        return {
+          rawg_id: parseInt(card.dataset.rawgId, 10),
+          name: row ? row.dataset.name : '',
+          genres: row ? JSON.parse(row.dataset.genres || '[]') : [],
+          platforms: row ? JSON.parse(row.dataset.platforms || '[]') : [],
+          direction: direction
+        };
       }
 
-      loadMore.addEventListener('click', function (event) {
-        event.preventDefault();
-        if (isLoading) {
+      // Platform filter carried through to the API so load-more / backfill
+      // stay within the selected platforms.
+      var platformsQuery = grid.dataset.platforms
+        ? '&platforms=' + encodeURIComponent(grid.dataset.platforms)
+        : '';
+
+      // Fetch the freshest recommendations (weights include all feedback given
+      // so far) and return the first game not already on the page.
+      function findUnseen(pageSize) {
+        var attempt = function (page) {
+          if (page > 3) { return Promise.resolve(null); }
+          return fetch('/api/recommendations?page=' + page + '&page_size=' + pageSize + platformsQuery)
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+              var fresh = (data.results || []).find(function (item) {
+                return !seenIds.has(item.id);
+              });
+              if (fresh) { return fresh; }
+              if (!data.next_page) { return null; }
+              return attempt(page + 1);
+            });
+        };
+        return attempt(1);
+      }
+
+      // Card interactions: feedback thumbs + remove-and-replace.
+      grid.addEventListener('click', function (event) {
+        var removeBtn = event.target.closest('.card-remove');
+        if (removeBtn) {
+          var card = removeBtn.closest('.card');
+          removeBtn.disabled = true;
+          postFeedback(cardPayload(card, 'dismiss'))
+            .then(function () {
+              var placeholder = document.createElement('div');
+              placeholder.className = 'card card-placeholder';
+              placeholder.textContent = 'Finding another pick\u2026';
+              card.replaceWith(placeholder);
+              return findUnseen(12).then(function (fresh) {
+                if (fresh) {
+                  var freshCard = createCard(fresh);
+                  placeholder.replaceWith(freshCard);
+                  seenIds.add(fresh.id);
+                } else {
+                  placeholder.remove();
+                }
+              });
+            })
+            .catch(function () {
+              removeBtn.disabled = false;
+            });
+          return;
+        }
+
+        var btn = event.target.closest('.feedback-btn');
+        if (!btn || btn.disabled) {
+          return;
+        }
+        var row = btn.closest('.feedback-row');
+        var feedbackCard = btn.closest('.card');
+        btn.disabled = true;
+        postFeedback({
+          rawg_id: parseInt(row.dataset.rawgId, 10),
+          name: row.dataset.name,
+          genres: JSON.parse(row.dataset.genres || '[]'),
+          platforms: JSON.parse(row.dataset.platforms || '[]'),
+          direction: btn.dataset.direction
+        })
+          .then(function (data) {
+            row.querySelectorAll('.feedback-btn').forEach(function (other) {
+              other.classList.remove('is-active');
+            });
+            if (data.direction === 'more') {
+              row.querySelector('.feedback-more').classList.add('is-active');
+            } else if (data.direction === 'less') {
+              row.querySelector('.feedback-less').classList.add('is-active');
+            }
+            if (feedbackCard) {
+              feedbackCard.classList.toggle('is-dimmed', data.direction === 'less');
+            }
+          })
+          .catch(function () {})
+          .finally(function () {
+            btn.disabled = false;
+          });
+      });
+
+      // Infinite scroll + "Load more" fallback. Each page is fetched with the
+      // latest taste weights, so thumbs given mid-scroll shape what loads next.
+      var loadMore = document.getElementById('recommendations-load-more');
+      var sentinel = document.getElementById('recommendations-sentinel');
+      var indicator = document.getElementById('recommendations-page-indicator');
+      var pageSize = loadMore ? parseInt(loadMore.dataset.pageSize || '8', 10) : 8;
+      var currentPage = loadMore ? parseInt(loadMore.dataset.page || '1', 10) : 1;
+      var hasMore = Boolean(loadMore);
+      var isLoading = false;
+      var observer = null;
+
+      function finishPagination() {
+        hasMore = false;
+        if (observer) { observer.disconnect(); }
+        if (loadMore) { loadMore.remove(); }
+      }
+
+      function loadNext() {
+        if (isLoading || !hasMore) {
           return;
         }
         isLoading = true;
-        loadMore.textContent = 'Loading...';
+        if (loadMore) { loadMore.textContent = 'Loading...'; }
         var nextPage = currentPage + 1;
-        fetch('/api/recommendations?page=' + encodeURIComponent(nextPage) + '&page_size=' + pageSize)
+        fetch('/api/recommendations?page=' + encodeURIComponent(nextPage) + '&page_size=' + pageSize + platformsQuery)
           .then(function (res) { return res.json(); })
           .then(function (data) {
-            var items = data.results || [];
+            var items = (data.results || []).filter(function (item) {
+              return !seenIds.has(item.id);
+            });
             items.forEach(function (item) {
+              seenIds.add(item.id);
               grid.appendChild(createCard(item));
             });
             currentPage = nextPage;
-            loadMore.dataset.page = String(currentPage);
+            if (loadMore) {
+              loadMore.dataset.page = String(currentPage);
+              loadMore.href = '/recommendations?page=' + encodeURIComponent(currentPage + 1);
+            }
             if (indicator) {
               indicator.textContent = 'Page ' + currentPage;
             }
-            if (!data.next_page || !items.length) {
-              loadMore.remove();
-              return;
+            if (!data.next_page) {
+              finishPagination();
             }
-            updateLink(currentPage + 1);
           })
           .catch(function () {})
           .finally(function () {
             isLoading = false;
             if (loadMore && loadMore.isConnected) {
-              loadMore.textContent = originalLabel;
+              loadMore.textContent = 'Load more';
             }
           });
-      });
-      updateLink(currentPage + 1);
+      }
+
+      if (loadMore) {
+        loadMore.addEventListener('click', function (event) {
+          event.preventDefault();
+          loadNext();
+        });
+      }
+      if (sentinel && hasMore && 'IntersectionObserver' in window) {
+        observer = new IntersectionObserver(function (entries) {
+          if (entries[0].isIntersecting) {
+            loadNext();
+          }
+        }, { rootMargin: '600px 0px' });
+        observer.observe(sentinel);
+      }
     })();
   </script>
 {% endblock %}

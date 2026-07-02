@@ -27,11 +27,14 @@
         <h1><a class="brand" href="/">GameTracker</a></h1>
         <span class="tagline">Track · finish · repeat</span>
       </div>
+      {% set path = request.url.path if request else '' %}
       <nav class="nav">
-        <a href="/list">My List</a>
-        <a href="/search">Search</a>
-        <a href="/stats">Stats</a>
-        <a href="/recommendations">Recommendations</a>
+        <a href="/list" {% if path == '/list' or path == '/' %}class="active" aria-current="page"{% endif %}>My List</a>
+        {% set is_upcoming = path.startswith('/upcoming') or (path.startswith('/search') and request.query_params.get('upcoming')) %}
+        <a href="/search" {% if (path.startswith('/search') and not is_upcoming) or path.startswith('/game/') %}class="active" aria-current="page"{% endif %}>Search</a>
+        <a href="/search?upcoming=1" {% if is_upcoming %}class="active" aria-current="page"{% endif %}>Upcoming</a>
+        <a href="/stats" {% if path.startswith('/stats') %}class="active" aria-current="page"{% endif %}>Stats</a>
+        <a href="/recommendations" {% if path.startswith('/recommendations') %}class="active" aria-current="page"{% endif %}>Recommendations</a>
       </nav>
       <div class="header-actions">
         <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle theme">
@@ -43,7 +46,7 @@
     <main class="container">
       {% block content %}{% endblock %}
     </main>
-    <footer class="container footer">Built with FastAPI + RAWG | UI by Eliad Hofman</footer>
+    <footer class="container footer">Built with FastAPI + RAWG | UI by Eliad Hofman | <a href="/debug">Debug</a></footer>
     <script>
       (function () {
         if ('scrollRestoration' in history) {
